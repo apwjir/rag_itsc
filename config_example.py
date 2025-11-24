@@ -20,7 +20,7 @@ VECTOR_DIMS = 384
 # การตั้งค่า Gemini API
 # --------------------
 # *** วาง Key ที่คัดลอกมาจาก Google AI Studio ตรงนี้ ***
-GEMINI_API_KEY = "AIzaSyBeEVBOiYWL6WFJPFe03NDeRtnB350wd6s"
+GEMINI_API_KEY = "YOUR_API_KEY"
 
 # --------------------
 # (เพิ่มใหม่) การตั้งค่า Qdrant (ฐานข้อมูล Vector)
