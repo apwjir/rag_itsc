@@ -1,0 +1,5 @@
+stix2
+sentence-transformers
+tqdm
+qdrant-client
+google-generativeai

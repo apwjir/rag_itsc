@@ -1,0 +1,17 @@
+services:
+  # ตั้งชื่อ service (เช่น 'qdrant')
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant-db
+    restart: always # (แนะนำ) ให้มันเริ่มใหม่เองถ้าล่ม
+    ports:
+      - "6333:6333" # Port REST API (ที่เราใช้)
+      - "6334:6334" # Port gRPC (เผื่ออนาคต)
+    volumes:
+      # ตั้งชื่อ Volume ว่า 'qdrant-storage'
+      - qdrant-storage:/qdrant/storage
+
+# กำหนด Volume ที่จะใช้
+volumes:
+  qdrant-storage:
+    driver: local # บอกให้ใช้ storage บนเครื่องนี้
