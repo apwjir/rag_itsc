@@ -1,0 +1,222 @@
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from elasticsearch import Elasticsearch, helpers
+import pandas as pd
+import io
+import numpy as np
+import uuid 
+from datetime import datetime
+from typing import Optional, List, Dict, Any # <--- เพิ่ม List, Dict, Any
+from pydantic import BaseModel # <--- เพิ่ม Pydantic เพื่อทำ Validation
+
+app = FastAPI()
+
+# เชื่อมต่อ Elasticsearch
+es = Elasticsearch("http://localhost:9200")
+
+# --- Function 1: แปลงวันที่ ---
+def parse_date_from_ticket(ticket_id):
+    try:
+        if ticket_id is None or (isinstance(ticket_id, float) and np.isnan(ticket_id)):
+             return datetime.now().isoformat()
+
+        date_part = str(ticket_id).split('-')[0]
+        
+        if not date_part.isdigit() or len(date_part) < 4:
+             return datetime.now().isoformat()
+
+        year = int(date_part[:4])
+        rest = date_part[4:]
+        
+        if len(rest) == 3:
+            month = int(rest[0])
+            day = int(rest[1:])
+        elif len(rest) == 4:
+            month = int(rest[:2])
+            day = int(rest[2:])
+        else:
+            if rest and int(rest) > 1231:
+                 month = int(rest[0])
+                 day = int(rest[1:])
+            elif rest:
+                 month = int(rest[:2])
+                 day = int(rest[2:])
+            else:
+                 return datetime.now().isoformat()
+                 
+        return datetime(year, month, day).isoformat()
+    except Exception as e:
+        print(f"Date Parse Error: {e}") 
+        return datetime.now().isoformat()
+
+# --- Function 2: โครงสร้าง AI เริ่มต้น ---
+def get_empty_ai_structure():
+    return {
+        "mitigation_plan": [], 
+        "related_threats": []  
+    }
+
+# --- Pydantic Models (สำหรับรับข้อมูล Update) ---
+class MitigationItem(BaseModel):
+    method_id: int
+    action: str
+    reason: str
+
+class RelatedThreatItem(BaseModel):
+    mitre_id: str
+    name: str
+
+class AIAnalysisUpdate(BaseModel):
+    mitigation_plan: List[MitigationItem]
+    related_threats: List[RelatedThreatItem]
+
+# --- Route Upload ---
+@app.post("/upload-log/")
+async def upload_log_csv(file: UploadFile = File(...)):
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="ขอเป็นไฟล์ CSV เท่านั้นครับ")
+
+    try:
+        contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+        
+        # --- Filter out Admin Information Sharing ---
+        # กรองข้อมูลก่อน Clean Data เพื่อลดจำนวน row ที่ไม่จำเป็น
+        if 'CategoryEN' in df.columns:
+             df = df[df['CategoryEN'] != 'Admin Information Sharing']
+
+        df = df.where(pd.notnull(df), None)
+        
+        actions = []
+        for _, row in df.iterrows():
+            doc = row.to_dict()
+            
+            # 1. สร้าง UID
+            generated_uid = str(uuid.uuid4())
+            doc['uid'] = generated_uid
+
+            # 2. แปลงวันที่
+            doc['@timestamp'] = parse_date_from_ticket(doc.get('TicketId'))
+            
+            # 3. ใส่โครงสร้าง AI (เริ่มแรกเป็นค่าว่าง)
+            doc['ai_analysis'] = get_empty_ai_structure()
+
+            actions.append({
+                "_index": "cmu-incidents-fastapi",
+                "_id": generated_uid, 
+                "_source": doc
+            })
+
+        if not es.ping():
+             raise Exception("Cannot connect to Elasticsearch at localhost:9200")
+
+        success, failed = helpers.bulk(es, actions)
+        
+        return {
+            "status": "success",
+            "total_rows_processed": len(df), # จำนวนแถวที่เหลือหลังจากการกรอง
+            "inserted_count": success,
+            "note": "Imported successfully (Filtered out 'Admin Information Sharing')"
+        }
+
+    except Exception as e:
+        print(f"!!! CRITICAL ERROR !!!: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
+
+# --- Route Update AI Analysis (NEW) ---
+@app.put("/log/update-ai/{uid}")
+async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate):
+    """
+    อัปเดตข้อมูล AI Analysis (Mitigation Plan & Related Threats) โดยใช้ UID
+    """
+    try:
+        # 1. เช็คก่อนว่ามีข้อมูลไหม
+        if not es.exists(index="cmu-incidents-fastapi", id=uid):
+             raise HTTPException(status_code=404, detail="Log ID not found")
+
+        # 2. เตรียมข้อมูลสำหรับ Update (Elasticsearch Partial Update)
+        update_body = {
+            "doc": {
+                "ai_analysis": ai_data.dict() # แปลง Pydantic model เป็น Dictionary
+            }
+        }
+
+        # 3. สั่ง Update
+        es.update(index="cmu-incidents-fastapi", id=uid, body=update_body)
+
+        return {
+            "status": "success",
+            "message": "AI Analysis updated successfully",
+            "uid": uid,
+            "updated_data": ai_data
+        }
+
+    except Exception as e:
+        print(f"Update Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Route Search ---
+@app.get("/search-logs/")
+async def search_logs(keyword: Optional[str] = None, limit: int = 10, skip: int = 0):
+    if not keyword:
+        body = {"query": {"match_all": {}}, "sort": [{"@timestamp": {"order": "desc"}}]}
+    else:
+        body = {
+            "query": {
+                "multi_match": {
+                    "query": keyword,
+                    "fields": ["IncidentSubject", "IncidentMessage", "TicketId", "uid"],
+                    "fuzziness": "AUTO"
+                }
+            },
+            "sort": [{"@timestamp": {"order": "desc"}}]
+        }
+
+    try:
+        res = es.search(index="cmu-incidents-fastapi", body=body, size=limit, from_=skip)
+        hits = res['hits']['hits']
+        results = [hit['_source'] for hit in hits]
+        return {"total": res['hits']['total']['value'], "data": results}
+    except Exception as e:
+        return {"error": str(e)}
+
+# --- Route Get by TicketId ---
+@app.get("/log/ticket/{ticket_id}")
+async def get_log_by_ticket_id(ticket_id: str):
+    body = {
+        "query": {
+            "term": {
+                "TicketId.keyword": ticket_id 
+            }
+        }
+    }
+    try:
+        res = es.search(index="cmu-incidents-fastapi", body=body)
+        hits = res['hits']['hits']
+        if len(hits) > 0:
+            return hits[0]['_source']
+        else:
+            raise HTTPException(status_code=404, detail="Log not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Route Get by UID ---
+@app.get("/log/uid/{uid}")
+async def get_log_by_uid(uid: str):
+    try:
+        res = es.get(index="cmu-incidents-fastapi", id=uid)
+        return res['_source']
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Log not found")
+
+# --- Route Delete All ---
+@app.delete("/delete-all-logs/")
+async def delete_all_logs():
+    try:
+        if es.indices.exists(index="cmu-incidents-fastapi"):
+            es.delete_by_query(
+                index="cmu-incidents-fastapi", 
+                body={"query": {"match_all": {}}}
+            )
+        return {"status": "success", "message": "Deleted all logs"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
