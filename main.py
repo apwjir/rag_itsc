@@ -1,17 +1,31 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from elasticsearch import Elasticsearch, helpers
+from contextlib import asynccontextmanager # ต้องใช้ตัวนี้สำหรับ Lifespan
 import pandas as pd
 import io
 import numpy as np
 import uuid 
 from datetime import datetime
-from typing import Optional, List, Dict, Any # <--- เพิ่ม List, Dict, Any
-from pydantic import BaseModel # <--- เพิ่ม Pydantic เพื่อทำ Validation
+from typing import Optional, List, Dict, Any 
+from pydantic import BaseModel
+import config
+from ai_engine import ai_engine_instance  
 
-app = FastAPI()
+# --- Lifespan Manager ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 1. โหลด Model AI และเชื่อมต่อ Qdrant เมื่อ Server start (ทำแค่ครั้งเดียว)
+    print("🚀 Server Starting... Initializing AI Engine...")
+    ai_engine_instance.init_models()
+    yield
+    # Cleanup (ถ้ามี)
+    print("🛑 Server Stopping...")
+
+app = FastAPI(lifespan=lifespan)
 
 # เชื่อมต่อ Elasticsearch
 es = Elasticsearch("http://localhost:9200")
+INDEX_NAME = "cmu-incidents-fastapi"
 
 # --- Function 1: แปลงวันที่ ---
 def parse_date_from_ticket(ticket_id):
@@ -220,3 +234,65 @@ async def delete_all_logs():
         return {"status": "success", "message": "Deleted all logs"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Generate AI Analysis by UID
+@app.post("/generate-ai/{uid}")
+async def generate_ai_analysis(uid: str):
+    """
+    1. รับ UID
+    2. ดึงข้อมูล Log จาก Elasticsearch
+    3. ส่งเข้า RAG (AI Engine)
+    4. เอาผลลัพธ์กลับมา Update ลง Elasticsearch
+    """
+    print(f"⚡ Request received: Generate AI for UID {uid}")
+
+    # 1. ดึงข้อมูลจาก Elasticsearch
+    try:
+        if not es.exists(index=INDEX_NAME, id=uid):
+            raise HTTPException(status_code=404, detail="Log ID not found")
+            
+        doc = es.get(index=INDEX_NAME, id=uid)
+        source = doc['_source']
+        
+        # ดึงฟิลด์ที่ต้องใช้ในการวิเคราะห์
+        cat = str(source.get('CategoryEN', 'Unknown'))
+        subj = str(source.get('IncidentSubject', ''))
+        msg = str(source.get('IncidentMessage', ''))
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Elasticsearch Error: {str(e)}")
+
+    # 2. เรียกใช้ AI Engine (RAG)
+    try:
+        # ฟังก์ชันนี้จะไปค้น Qdrant และถาม Gemini ให้
+        ai_result = ai_engine_instance.analyze_incident(cat, subj, msg)
+        
+        # ai_result จะหน้าตาแบบนี้:
+        # {
+        #    "mitigation_plan": [...],
+        #    "related_threats": [...]
+        # }
+        
+    except Exception as e:
+        print(f"AI Engine Error: {e}")
+        raise HTTPException(status_code=500, detail=f"AI Processing Error: {str(e)}")
+
+    # 3. อัปเดตข้อมูลกลับลง Elasticsearch
+    try:
+        update_body = {
+            "doc": {
+                "ai_analysis": ai_result,  # เขียนทับ field ai_analysis เดิม
+                "ai_generated_at": datetime.now().isoformat() # (Optional) แปะเวลาที่ gen ไว้ด้วย
+            }
+        }
+        es.update(index=INDEX_NAME, id=uid, body=update_body)
+        
+        return {
+            "status": "success",
+            "uid": uid,
+            "message": "AI Analysis generated and updated successfully",
+            "data": ai_result # ส่งผลลัพธ์กลับไปให้ดูด้วยเลย
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update Elasticsearch: {str(e)}")
