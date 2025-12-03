@@ -1,17 +1,95 @@
+name: itsc-rag-project
 services:
-  # ตั้งชื่อ service (เช่น 'qdrant')
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
+    container_name: es01
+    environment:
+      - node.name=es01
+      - cluster.name=incident-logs-cluster
+      - discovery.seed_hosts=es02
+      - cluster.initial_master_nodes=es01,es02
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - xpack.monitoring.collection.enabled=true
+      - action.destructive_requires_name=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es01-data:/usr/share/elasticsearch/data
+      - ./elasticsearch/logs:/usr/share/elasticsearch/logs
+    ports:
+      - 9200:9200
+    networks:
+      - esnet
+    restart: unless-stopped
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
+    container_name: es02
+    environment:
+      - node.name=es02
+      - cluster.name=incident-logs-cluster
+      - discovery.seed_hosts=es01
+      - cluster.initial_master_nodes=es01,es02
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - xpack.monitoring.collection.enabled=true
+      - action.destructive_requires_name=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es02-data:/usr/share/elasticsearch/data
+      - ./elasticsearch/logs:/usr/share/elasticsearch/logs
+    ports:
+      - 9201:9200
+    networks:
+      - esnet
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.15.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://es01:9200
+      - SERVER_NAME=kibana
+      - SERVER_HOST=0.0.0.0
+      - LOGGING_DEST=stdout
+    ports:
+      - 5601:5601
+    volumes:
+      - kibana-data:/usr/share/kibana/data
+      - ./kibana/logs:/usr/share/kibana/logs
+    networks:
+      - esnet
+    restart: unless-stopped
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant-db
-    restart: always # (แนะนำ) ให้มันเริ่มใหม่เองถ้าล่ม
+    restart: always
     ports:
-      - "6333:6333" # Port REST API (ที่เราใช้)
-      - "6334:6334" # Port gRPC (เผื่ออนาคต)
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC
     volumes:
-      # ตั้งชื่อ Volume ว่า 'qdrant-storage'
       - qdrant-storage:/qdrant/storage
+    networks:
+      - esnet
 
-# กำหนด Volume ที่จะใช้
+networks:
+  esnet:
+    driver: bridge
+
 volumes:
+  es01-data:
+    driver: local
+  es02-data:
+    driver: local
+  kibana-data:
+    driver: local
   qdrant-storage:
-    driver: local # บอกให้ใช้ storage บนเครื่องนี้
+    driver: local

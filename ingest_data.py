@@ -1,192 +1,179 @@
-# 02_ingest_qdrant.py
-import config
+import os
+import time
+from dotenv import load_dotenv
 from stix2 import MemoryStore, Filter
-from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
 from tqdm import tqdm
 import warnings
 import uuid
+import google.generativeai as genai
 
 warnings.filterwarnings("ignore", module="stix2.properties")
 
-QDRANT_HOST = "localhost"
-QDRANT_PORT = 6333
-COLLECTION_NAME = "mitre-attack-vectors"
+load_dotenv()
+STIX_FILE_PATH = os.getenv("STIX_FILE_PATH")
+QDRANT_HOST = os.getenv("QDRANT_HOST")
+QDRANT_PORT = os.getenv("QDRANT_PORT")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME")
+VECTOR_DIMS = int(os.getenv("VECTOR_DIMS", "768")) # text-embedding-004 ปกติคือ 768 dims (เช็คดีๆนะครับ ถ้า 004 ใช้ 768)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# ใช้ text-embedding-004
+EMBEDDING_MODEL = "models/text-embedding-004"
+genai.configure(api_key=GEMINI_API_KEY)
+
+# -------------------------------
+# Helper: Batch Embedding Function
+# -------------------------------
+def embed_batch(texts):
+    """
+    รับ list ของ text แล้วส่งไป embed ทีเดียว
+    """
+    try:
+        # Google API รองรับการส่ง list เข้าไปตรงๆ
+        result = genai.embed_content(
+            model=EMBEDDING_MODEL,
+            content=texts,
+            task_type="retrieval_document"
+        )
+        # ผลลัพธ์ key คือ 'embedding' ซึ่งจะเป็น list ของ vectors
+        return result['embedding']
+    except Exception as e:
+        print(f"Error embedding batch: {e}")
+        # ถ้า error ให้ return list ว่าง หรือจัดการ retry ตามสมควร
+        return []
 
 # -------------------------------
 # Helper: split list into batches
 # -------------------------------
-def chunk_list(data, size=200):
+def chunk_list(data, size=100):
     for i in range(0, len(data), size):
         yield data[i:i + size]
 
 # -------------------------------
-# Normalize payload content by type
+# Normalize payload content
 # -------------------------------
 def create_text_for_embedding(obj):
     obj_type = obj.get("type", "")
-    # helper to safely get fields
     def g(k, default=""):
         return obj.get(k, default) or ""
 
-    # Base fields
     name = g("name")
     desc = g("description")
-    ext = obj.get("external_references", [{}])
-    url = ext[0].get("url", "") if ext else ""
-
+    
+    # Custom logic for types
     if obj_type == "attack-pattern":
         tactics = [p.get("phase_name", "") for p in obj.get("kill_chain_phases", [])] if obj.get("kill_chain_phases") else []
-        parts = [
-            f"Type: Attack-Pattern",
-            f"Name: {name}",
-            f"Description: {desc}",
-            f"Tactics: {', '.join(tactics)}",
-            f"Platforms: {', '.join(obj.get('x_mitre_platforms', []))}",
-            f"Detection: {obj.get('x_mitre_detection','')}"
-        ]
-        return ". ".join([p for p in parts if p.split(":")[-1].strip()])
-
+        return f"Type: Attack-Pattern. Name: {name}. Description: {desc}. Tactics: {', '.join(tactics)}"
+    
     if obj_type == "course-of-action":
-        parts = [
-            "Type: Mitigation",
-            f"Name: {name}",
-            f"Description: {desc}",
-            "Purpose: mitigation / remediation"
-        ]
-        return ". ".join([p for p in parts if p.split(":")[-1].strip()])
-
-    if obj_type == "x-mitre-data-source":
-        parts = [
-            "Type: Data-Source",
-            f"Name: {name}",
-            f"Description: {desc}",
-            f"Contributors: {', '.join(obj.get('x_mitre_contributors', [])) if obj.get('x_mitre_contributors') else ''}"
-        ]
-        return ". ".join([p for p in parts if p.split(":")[-1].strip()])
-
-    if obj_type == "relationship":
-        parts = [
-            "Type: Relationship",
-            f"Rel_Type: {obj.get('relationship_type','')}",
-            f"Source: {obj.get('source_ref','')}",
-            f"Target: {obj.get('target_ref','')}",
-            f"Description: {desc}"
-        ]
-        return ". ".join([p for p in parts if p.split(":")[-1].strip()])
-
-    # fallback - generic
-    return f"Type: {obj_type}. Name: {name}. Description: {desc or obj.get('text','') or ''}"
+        return f"Type: Mitigation. Name: {name}. Description: {desc}. Purpose: mitigation"
+    
+    # Default fallback
+    return f"Type: {obj_type}. Name: {name}. Description: {desc}"
 
 # -------------------------------
-# Decide priority (smaller = higher priority)
+# Priority Logic
 # -------------------------------
 def priority_for_type(obj_type):
-    mapping = {
-        "course-of-action": 1,   # mitigation highest
-        "attack-pattern": 2,     # technique
-        "x-mitre-data-source": 3,
-        "software": 3,
-        "relationship": 5,
-    }
+    mapping = {"course-of-action": 1, "attack-pattern": 2, "x-mitre-data-source": 3}
     return mapping.get(obj_type, 4)
 
 # -------------------------------
 # MAIN
 # -------------------------------
 def main():
-    print(f"Loading SentenceTransformer model: {config.MODEL_NAME}...")
-    model = SentenceTransformer(config.MODEL_NAME)
-
-    print(f"Loading STIX data from {config.STIX_FILE_PATH}...")
+    print(f"Using Google Embedding Model: {EMBEDDING_MODEL}")
+    
+    # ** CHECK VECTOR DIMS **
+    # text-embedding-004 ปกติ output dimension คือ 768
+    # แต่ถ้าคุณใช้ Gecko รุ่นเก่าอาจจะเป็น 1024 หรือ 1536
+    # แนะนำให้ลอง print(len(embed_batch(["test"])[0])) เพื่อเช็คก่อนสร้าง Collection ก็ดีครับ
+    
+    print(f"Loading STIX data from {STIX_FILE_PATH}...")
     store = MemoryStore()
-    store.load_from_file(config.STIX_FILE_PATH)
+    store.load_from_file(STIX_FILE_PATH)
 
-    # query types we care about (extendable)
-    types_to_query = [
-        "attack-pattern",
-        "x-mitre-data-source",
-        "course-of-action",
-        "relationship",
-        # include software/intrusion-set if present in your STIX
-        "malware",
-        "tool",
-        "campaign",
-        "intrusion-set",
-    ]
-
+    types_to_query = ["attack-pattern", "course-of-action", "x-mitre-data-source", "intrusion-set", "malware", "tool"]
     all_objects = []
     for t in types_to_query:
         try:
             objs = store.query([Filter("type", "=", t)])
             all_objects.extend(objs)
-        except Exception:
-            # some types may not exist in the bundle
-            continue
+        except: continue
 
-    print(f"Total STIX objects to ingest: {len(all_objects)}")
+    print(f"Total objects found: {len(all_objects)}")
 
-    # Connect to Qdrant
+    # Connect Qdrant
     client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    
+    # Check if collection exists properly (using newer method logic if needed)
+    # For simplicity, we recreate
     client.recreate_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(
-            size=config.VECTOR_DIMS,
-            distance=Distance.COSINE,
-        )
+        vectors_config=VectorParams(size=VECTOR_DIMS, distance=Distance.COSINE)
     )
-    print(f"Collection '{COLLECTION_NAME}' created successfully")
+    print(f"Collection '{COLLECTION_NAME}' (re)created.")
 
-    # Build points
-    points_to_ingest = []
-    print("Generating vectors and payloads...")
-
-    for obj in tqdm(all_objects, desc="Encoding"):
-        obj_type = obj.get("type", "")
-        ext = obj.get("external_references", [{}])
-        mitre_id = ext[0].get("external_id", "") if ext else ""
-        url = ext[0].get("url", "") if ext else ""
-
-        # normalized content used for embed and search context
+    # Prepare Data List first
+    print("Preparing data for batch processing...")
+    prepared_data = []
+    for obj in all_objects:
         text_content = create_text_for_embedding(obj)
-        vector = model.encode(text_content, normalize_embeddings=True).tolist()
-
         payload = {
-            "type": obj_type,
-            "mitre_id": mitre_id,
-            "name": obj.get("name", "") or obj.get("x_mitre_name", ""),
-            "description": obj.get("description", "") or "",
-            "url": url,
+            "type": obj.get("type"),
+            "name": obj.get("name", ""),
+            "description": obj.get("description", ""),
             "text_content": text_content,
-            "priority": priority_for_type(obj_type),
+            "priority": priority_for_type(obj.get("type")),
+            # Add other fields as needed
         }
+        prepared_data.append({"text": text_content, "payload": payload})
 
-        # include any other useful STIX fields for later use (safe to add)
-        if obj_type == "attack-pattern":
-            payload["tactics"] = [p.get("phase_name", "") for p in obj.get("kill_chain_phases", [])] if obj.get("kill_chain_phases") else []
-            payload["platforms"] = obj.get("x_mitre_platforms", [])
+    # Process in Batches (Embedding + Upsert)
+    # Batch size สำหรับ Embedding API (Google รับได้ประมาณ 100 ต่อ call กำลังดี)
+    EMBED_BATCH_SIZE = 50 
+    
+    print(f"Starting Ingestion in batches of {EMBED_BATCH_SIZE}...")
+    
+    total_ingested = 0
+    
+    for batch in tqdm(chunk_list(prepared_data, EMBED_BATCH_SIZE), total=len(prepared_data)//EMBED_BATCH_SIZE):
+        # 1. Extract texts
+        texts_to_embed = [item["text"] for item in batch]
+        
+        # 2. Call Google API (Batch Embed)
+        try:
+            vectors = embed_batch(texts_to_embed)
+        except Exception as e:
+            print(f"Skipping batch due to error: {e}")
+            continue
 
-        points_to_ingest.append(
-            PointStruct(
+        if not vectors:
+            continue
+            
+        # 3. Prepare Points for Qdrant
+        points = []
+        for i, item in enumerate(batch):
+            points.append(PointStruct(
                 id=str(uuid.uuid4()),
-                vector=vector,
-                payload=payload
-            )
-        )
-
-    # Upsert in chunks
-    print("Uploading data in batches to Qdrant...")
-    batch_size = 200
-    for batch in chunk_list(points_to_ingest, batch_size):
+                vector=vectors[i],
+                payload=item["payload"]
+            ))
+        
+        # 4. Upsert to Qdrant
         client.upsert(
             collection_name=COLLECTION_NAME,
-            points=batch,
-            wait=True
+            points=points
         )
+        
+        total_ingested += len(points)
+        
+        # ** สำคัญ **: ใส่ Delay นิดหน่อยเพื่อไม่ให้ชน Rate Limit ของ Free Tier
+        time.sleep(1) 
 
-    print(f"Ingest completed: {len(points_to_ingest)} objects uploaded.")
-
+    print(f"Done! Ingested {total_ingested} objects.")
 
 if __name__ == "__main__":
     main()

@@ -8,19 +8,31 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any 
 from pydantic import BaseModel
-import config
 from ai_engine import ai_engine_instance  
+import qdrant_client
 
 # --- Lifespan Manager ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. โหลด Model AI และเชื่อมต่อ Qdrant เมื่อ Server start (ทำแค่ครั้งเดียว)
     print("🚀 Server Starting... Initializing AI Engine...")
-    ai_engine_instance.init_models()
-    yield
-    # Cleanup (ถ้ามี)
-    print("🛑 Server Stopping...")
+    
+    # --- 🔍 แก้เป็นบรรทัดนี้ครับ ---
+    print(f"🔎 DEBUG: Module Path = {qdrant_client}") 
+    # (ถ้ามันโหลดถูกที่ ต้องมีคำว่า 'site-packages' ใน Path ที่แสดงออกมา)
+    
+    # --- ส่วนเช็ค search method เก็บไว้เหมือนเดิม ---
+    try:
+        ai_engine_instance.init_models()
+        if hasattr(ai_engine_instance.client, 'search'):
+            print("✅ Client has 'search' method")
+        else:
+            print("❌ Client MISSING 'search' method")
+    except Exception as e:
+        print(f"💥 Error during init: {e}")
 
+    yield
+    print("🛑 Server Stopping...")
+    
 app = FastAPI(lifespan=lifespan)
 
 # เชื่อมต่อ Elasticsearch

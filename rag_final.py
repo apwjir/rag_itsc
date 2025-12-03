@@ -1,7 +1,8 @@
 import sys
 import pandas as pd
 import json
-import config
+import os
+from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 import google.generativeai as genai
@@ -10,6 +11,11 @@ import re
 import uuid
 from tqdm import tqdm
 from datetime import datetime
+
+# download environment variables from .env file
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME", "all-MiniLM-L6-v2")
 
 warnings.filterwarnings("ignore", category=UserWarning, module="google.generativeai")
 
@@ -84,7 +90,7 @@ def generate_mitigation_json(query_text, context_text):
     ]
     """
     try:
-        genai.configure(api_key=config.GEMINI_API_KEY)
+        genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel("models/gemini-2.5-flash")
         resp = model.generate_content(prompt)
         text_resp = resp.text if hasattr(resp, "text") else str(resp)
@@ -103,7 +109,7 @@ def main():
     df_filtered = df[df['CategoryEN'] != 'Admin Information Sharing'].copy()
     print(f"Processing {len(df_filtered)} incidents...")
 
-    model = SentenceTransformer(config.MODEL_NAME)
+    model = SentenceTransformer(MODEL_NAME)
     client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
     json_output = []

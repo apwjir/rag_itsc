@@ -1,11 +1,15 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 pandas
+numpy
 elasticsearch
 stix2
 sentence-transformers
+transformers
 tqdm
 qdrant-client
 google-generativeai
 python-dotenv
+pydantic
+protobuf>=5.26.1,<6.0.0dev
