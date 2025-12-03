@@ -278,7 +278,7 @@ async def generate_ai_analysis(uid: str):
         raise HTTPException(status_code=500, detail=f"AI Processing Error: {str(e)}")
 
     # 3. อัปเดตข้อมูลกลับลง Elasticsearch
-    try:
+    try: 
         update_body = {
             "doc": {
                 "ai_analysis": ai_result,  # เขียนทับ field ai_analysis เดิม
