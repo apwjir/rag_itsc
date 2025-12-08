@@ -8,8 +8,9 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any 
 from pydantic import BaseModel
-from ai_engine import ai_engine_instance  
+from app.services.ai_engine import ai_engine_instance  
 import qdrant_client
+from app.api.auth import router as auth_router 
 
 # --- Lifespan Manager ---
 @asynccontextmanager
@@ -95,6 +96,9 @@ class RelatedThreatItem(BaseModel):
 class AIAnalysisUpdate(BaseModel):
     mitigation_plan: List[MitigationItem]
     related_threats: List[RelatedThreatItem]
+
+# --- Include Auth Router ---
+app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
 # --- Route Upload ---
 @app.post("/upload-log/")
