@@ -23,13 +23,14 @@ async def lifespan(app: FastAPI):
     # --- ส่วนเช็ค search method เก็บไว้เหมือนเดิม ---
     try:
         ai_engine_instance.init_models()
-        if hasattr(ai_engine_instance.client, 'search'):
-            print("✅ Client has 'search' method")
+
+        if ai_engine_instance.client is None:
+            print("Qdrant not connected")
         else:
-            print("❌ Client MISSING 'search' method")
+            print("Qdrant client OK")
+
     except Exception as e:
         print(f"💥 Error during init: {e}")
-
     yield
     print("🛑 Server Stopping...")
     

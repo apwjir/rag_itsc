@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 import google.generativeai as genai
 import warnings
+from qdrant_client.models import SearchRequest
 
 # โหลดตัวแปรจาก .env
 load_dotenv()
@@ -59,7 +60,7 @@ class AIEngine:
             return []
 
         try:
-            hits = self.client.points.search(
+            hits = self.client.search(
                 collection_name=self.collection_name,
                 query_vector=qv,
                 limit=top_k,
@@ -69,25 +70,24 @@ class AIEngine:
             print(f"Qdrant Error: {e}")
             return []
 
-        
-        # 3. Custom Scoring / Reranking (Logic เดิมของคุณ)
         boosted = []
         for h in hits:
             p = h.payload or {}
             score = getattr(h, "score", 0.0)
-            
-            # Boost ตามชนิดข้อมูล (Logic เดิม)
+
             boost_factor = 1.0
-            if p.get("type") == "course-of-action": boost_factor = 1.4
-            elif p.get("type") == "attack-pattern": boost_factor = 1.2
-            
-            # คำนวณ Score ใหม่
+            if p.get("type") == "course-of-action":
+                boost_factor = 1.4
+            elif p.get("type") == "attack-pattern":
+                boost_factor = 1.2
+
             combined = score * boost_factor + (1.0 / (p.get("priority", 4) + 0.1)) * 0.15
             boosted.append((combined, h))
-        
-        # เรียงลำดับตามคะแนนใหม่
+
         boosted_sorted = sorted(boosted, key=lambda x: x[0], reverse=True)
         return [item[1] for item in boosted_sorted[:final_k]]
+
+
 
     def build_context_from_hits(self, hits):
         lines = []
