@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+echo "---------------------------------------------"
+echo "Setting up PostgreSQL database: $POSTGRES_DB"
+echo "Creating application user: $POSTGRES_APP_USER"
+echo "---------------------------------------------"
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"<<-EOSQL
+    CREATE USER $POSTGRES_APP_USER WITH PASSWORD '$POSTGRES_APP_PASSWORD';
+    GRANT ALL PRIVILEGES ON DATABASE $POSTGRES_DB TO $POSTGRES_APP_USER;
+    GRANT ALL ON SCHEMA public TO $POSTGRES_APP_USER;
+    GRANT ALL ON ALL TABLES IN SCHEMA public TO $POSTGRES_APP_USER;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $POSTGRES_APP_USER;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $POSTGRES_APP_USER;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $POSTGRES_APP_USER;
+EOSQL
+
+echo "User $POSTGRES_APP_USER created with full access!"
