@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from elasticsearch import Elasticsearch, helpers
 from contextlib import asynccontextmanager # ต้องใช้ตัวนี้สำหรับ Lifespan
 import pandas as pd
@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.services.ai_engine import ai_engine_instance  
 import qdrant_client
 from app.api.auth import router as auth_router 
+from app.core.deps import get_current_user
 
 # --- Lifespan Manager ---
 @asynccontextmanager
@@ -102,7 +103,7 @@ app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
 # --- Route Upload ---
 @app.post("/upload-log/")
-async def upload_log_csv(file: UploadFile = File(...)):
+async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_current_user)):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="ขอเป็นไฟล์ CSV เท่านั้นครับ")
 
@@ -155,7 +156,7 @@ async def upload_log_csv(file: UploadFile = File(...)):
 
 # --- Route Update AI Analysis (NEW) ---
 @app.put("/log/update-ai/{uid}")
-async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate):
+async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate, user: str = Depends(get_current_user)):
     """
     อัปเดตข้อมูล AI Analysis (Mitigation Plan & Related Threats) โดยใช้ UID
     """
@@ -187,7 +188,7 @@ async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate):
 
 # --- Route Search ---
 @app.get("/search-logs/")
-async def search_logs(keyword: Optional[str] = None, limit: int = 10, skip: int = 0):
+async def search_logs(keyword: Optional[str] = None, limit: int = 10, skip: int = 0, user: str = Depends(get_current_user)):
     if not keyword:
         body = {"query": {"match_all": {}}, "sort": [{"@timestamp": {"order": "desc"}}]}
     else:
@@ -212,7 +213,7 @@ async def search_logs(keyword: Optional[str] = None, limit: int = 10, skip: int 
 
 # --- Route Get by TicketId ---
 @app.get("/log/ticket/{ticket_id}")
-async def get_log_by_ticket_id(ticket_id: str):
+async def get_log_by_ticket_id(ticket_id: str, user: str = Depends(get_current_user)):
     body = {
         "query": {
             "term": {
@@ -232,7 +233,7 @@ async def get_log_by_ticket_id(ticket_id: str):
 
 # --- Route Get by UID ---
 @app.get("/log/uid/{uid}")
-async def get_log_by_uid(uid: str):
+async def get_log_by_uid(uid: str, user: str = Depends(get_current_user)):
     try:
         res = es.get(index="cmu-incidents-fastapi", id=uid)
         return res['_source']
@@ -241,7 +242,7 @@ async def get_log_by_uid(uid: str):
 
 # --- Route Delete All ---
 @app.delete("/delete-all-logs/")
-async def delete_all_logs():
+async def delete_all_logs(user: str = Depends(get_current_user)):
     try:
         if es.indices.exists(index="cmu-incidents-fastapi"):
             es.delete_by_query(
@@ -254,7 +255,7 @@ async def delete_all_logs():
 
 # Generate AI Analysis by UID
 @app.post("/generate-ai/{uid}")
-async def generate_ai_analysis(uid: str):
+async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
     """
     1. รับ UID
     2. ดึงข้อมูล Log จาก Elasticsearch

@@ -4,7 +4,7 @@ from jose import jwt, JWTError
 from decouple import config
 
 SECRET_KEY = config("SECRET_KEY")
-ALGORITHM = "HS256"
+ALGORITHM = config("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
