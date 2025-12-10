@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware 
 from elasticsearch import Elasticsearch, helpers
 from contextlib import asynccontextmanager # ต้องใช้ตัวนี้สำหรับ Lifespan
 import pandas as pd
@@ -97,6 +98,19 @@ class RelatedThreatItem(BaseModel):
 class AIAnalysisUpdate(BaseModel):
     mitigation_plan: List[MitigationItem]
     related_threats: List[RelatedThreatItem]
+
+#--- CORS Middleware ---
+origins = [
+    "http://localhost:5173",  # ← Vite frontend
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,  # ← สำคัญสำหรับ Cookies ของ JWT Session
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Include Auth Router ---
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
