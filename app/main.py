@@ -1,11 +1,12 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware 
 from elasticsearch import Elasticsearch, helpers
 from contextlib import asynccontextmanager # ต้องใช้ตัวนี้สำหรับ Lifespan
 import pandas as pd
 import io
 import numpy as np
-import uuid 
+import uuid
+import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any 
 from pydantic import BaseModel
@@ -138,7 +139,6 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
             
             # 1. สร้าง UID
             generated_uid = str(uuid.uuid4())
-            doc['uid'] = generated_uid
 
             # 2. แปลงวันที่
             doc['@timestamp'] = parse_date_from_ticket(doc.get('TicketId'))
@@ -201,29 +201,100 @@ async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate, user: str = De
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Route Search ---
+# @app.get("/search-logs/")
+# async def search_logs(keyword: Optional[str] = None, limit: int = 10, skip: int = 0, user: str = Depends(get_current_user)):
+#     if not keyword:
+#         body = {"query": {"match_all": {}}, "sort": [{"@timestamp": {"order": "desc"}}]}
+#     else:
+#         body = {
+#             "query": {
+#                 "multi_match": {
+#                     "query": keyword,
+#                     "fields": ["IncidentSubject", "IncidentMessage", "TicketId", "uid"],
+#                     "fuzziness": "AUTO"
+#                 }
+#             },
+#             "sort": [{"@timestamp": {"order": "desc"}}]
+#         }
+
+#     try:
+#         res = es.search(index="cmu-incidents-fastapi", body=body, size=limit, from_=skip)
+#         hits = res['hits']['hits']
+#         results = [hit['_source'] for hit in hits]
+#         return {"total": res['hits']['total']['value'], "data": results}
+#     except Exception as e:
+#         return {"error": str(e)}
+    
 @app.get("/search-logs/")
-async def search_logs(keyword: Optional[str] = None, limit: int = 10, skip: int = 0, user: str = Depends(get_current_user)):
+async def search_logs(
+    keyword: Optional[str] = None,
+    limit: int = Query(50, le=200),
+    search_after: Optional[str] = None,
+    user: str = Depends(get_current_user),
+):
+    # 1️⃣ สร้าง query
     if not keyword:
-        body = {"query": {"match_all": {}}, "sort": [{"@timestamp": {"order": "desc"}}]}
+        query = {"match_all": {}}
     else:
-        body = {
-            "query": {
-                "multi_match": {
-                    "query": keyword,
-                    "fields": ["IncidentSubject", "IncidentMessage", "TicketId", "uid"],
-                    "fuzziness": "AUTO"
-                }
-            },
-            "sort": [{"@timestamp": {"order": "desc"}}]
+        query = {
+            "multi_match": {
+                "query": keyword,
+                "fields": [
+                    "IncidentSubject",
+                    "IncidentMessage",
+                    "TicketId",
+                    "uid"
+                ],
+                "fuzziness": "AUTO"
+            }
         }
 
-    try:
-        res = es.search(index="cmu-incidents-fastapi", body=body, size=limit, from_=skip)
-        hits = res['hits']['hits']
-        results = [hit['_source'] for hit in hits]
-        return {"total": res['hits']['total']['value'], "data": results}
-    except Exception as e:
-        return {"error": str(e)}
+    # 2️⃣ สร้าง body หลัก
+    body = {
+        "query": query,
+        "size": limit,
+        "track_total_hits": False,
+        "sort": [
+            {"@timestamp": "desc"},
+            {"uid.keyword": "desc"}  # unique tie-breaker
+        ],
+    }
+
+    if search_after:
+        try:
+            body["search_after"] = json.loads(search_after)
+        except json.JSONDecodeError:
+            # กรณี "\"uuid\"" หลุดมา
+            fixed = search_after.replace('\\"', '"')
+            body["search_after"] = json.loads(fixed)
+
+    # 4️⃣ ยิง Elasticsearch
+    res = es.search(
+        index=INDEX_NAME,
+        body=body
+    )
+
+    # 5️⃣ เตรียม response
+    hits = res["hits"]["hits"]
+    logs = [hit["_source"] for hit in hits]
+    items = [
+        {
+            "id": h["_id"],
+            **h["_source"]
+        }
+        for h in hits
+    ]
+
+    next_cursor = None
+    if hits:
+        next_cursor = json.dumps(hits[-1]["sort"])
+
+    return {
+        "data": items,
+        "next_cursor": next_cursor,
+        "count": len(items)
+    }
+
 
 # --- Route Get by TicketId ---
 @app.get("/log/ticket/{ticket_id}")
