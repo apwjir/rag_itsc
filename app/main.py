@@ -199,31 +199,6 @@ async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate, user: str = De
     except Exception as e:
         print(f"Update Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# --- Route Search ---
-# @app.get("/search-logs/")
-# async def search_logs(keyword: Optional[str] = None, limit: int = 10, skip: int = 0, user: str = Depends(get_current_user)):
-#     if not keyword:
-#         body = {"query": {"match_all": {}}, "sort": [{"@timestamp": {"order": "desc"}}]}
-#     else:
-#         body = {
-#             "query": {
-#                 "multi_match": {
-#                     "query": keyword,
-#                     "fields": ["IncidentSubject", "IncidentMessage", "TicketId", "uid"],
-#                     "fuzziness": "AUTO"
-#                 }
-#             },
-#             "sort": [{"@timestamp": {"order": "desc"}}]
-#         }
-
-#     try:
-#         res = es.search(index="cmu-incidents-fastapi", body=body, size=limit, from_=skip)
-#         hits = res['hits']['hits']
-#         results = [hit['_source'] for hit in hits]
-#         return {"total": res['hits']['total']['value'], "data": results}
-#     except Exception as e:
-#         return {"error": str(e)}
     
 @app.get("/search-logs/")
 async def search_logs(
@@ -294,6 +269,112 @@ async def search_logs(
         "next_cursor": next_cursor,
         "count": len(items)
     }
+
+@app.get("/logs/unanalysis")
+async def get_unanalysis_logs(
+    limit: int = Query(50, le=200),
+    search_after: Optional[str] = None,
+    user: str = Depends(get_current_user)
+):
+    body = {
+        "query": {
+            "bool": {
+                "must_not": [
+                    { "exists": { "field": "ai_generated_at" } }
+                ]
+            }
+        },
+        "size": limit,
+        "track_total_hits": False,
+        "sort": [
+            {"@timestamp": "desc"},
+            {"_id": "desc"}
+        ]
+    }
+
+    if search_after:
+        try:
+            body["search_after"] = json.loads(search_after)
+        except json.JSONDecodeError:
+            fixed = search_after.replace('\\"', '"')
+            body["search_after"] = json.loads(fixed)
+
+    res = es.search(index=INDEX_NAME, body=body)
+
+    hits = res["hits"]["hits"]
+    items = [{"id": h["_id"], **h["_source"]} for h in hits]
+
+    next_cursor = json.dumps(hits[-1]["sort"]) if hits else None
+
+    return {
+        "data": items,
+        "next_cursor": next_cursor
+    }
+
+@app.get("/logs/analyzed")
+async def get_analyzed_logs(
+    limit: int = Query(50, le=200),
+    search_after: Optional[str] = None,
+    user: str = Depends(get_current_user)
+):
+    body = {
+        "query": {
+            "exists": {
+                "field": "ai_generated_at"
+            }
+        },
+        "size": limit,
+        "track_total_hits": False,
+        "sort": [
+            {"@timestamp": "desc"},
+            {"_id": "desc"}
+        ]
+    }
+
+    if search_after:
+        try:
+            body["search_after"] = json.loads(search_after)
+        except json.JSONDecodeError:
+            fixed = search_after.replace('\\"', '"')
+            body["search_after"] = json.loads(fixed)
+
+    res = es.search(index=INDEX_NAME, body=body)
+
+    hits = res["hits"]["hits"]
+    items = [{"id": h["_id"], **h["_source"]} for h in hits]
+
+    next_cursor = json.dumps(hits[-1]["sort"]) if hits else None
+
+    return {
+        "data": items,
+        "next_cursor": next_cursor
+    }
+
+@app.get("/logs/summary")
+async def get_logs_summary(user: str = Depends(get_current_user)):
+    try:
+        total = es.count(index=INDEX_NAME)["count"]
+
+        analyzed = es.count(
+            index=INDEX_NAME,
+            body={
+                "query": {
+                    "exists": {
+                        "field": "ai_generated_at"
+                    }
+                }
+            }
+        )["count"]
+
+        unanalyzed = total - analyzed
+
+        return {
+            "total": total,
+            "analyzed": analyzed,
+            "unanalyzed": unanalyzed
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Route Get by TicketId ---
