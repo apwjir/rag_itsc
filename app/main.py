@@ -14,6 +14,7 @@ from app.services.ai_engine import ai_engine_instance
 import qdrant_client
 from app.api.auth import router as auth_router 
 from app.core.deps import get_current_user
+from app.api.auto_analyze import router as auto_analyze_router
 
 # --- Lifespan Manager ---
 @asynccontextmanager
@@ -116,6 +117,9 @@ app.add_middleware(
 # --- Include Auth Router ---
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
+# --- Include Auto Analyze Router ---
+app.include_router(auto_analyze_router, tags=["Auto Analysis"])
+
 # --- Route Upload ---
 @app.post("/upload-log/")
 async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_current_user)):
@@ -145,6 +149,8 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
             
             # 3. ใส่โครงสร้าง AI (เริ่มแรกเป็นค่าว่าง)
             doc['ai_analysis'] = get_empty_ai_structure()
+            doc["ai_status"] = "pending"
+            doc["ai_generated_at"] = None
 
             actions.append({
                 "_index": "cmu-incidents-fastapi",
@@ -442,6 +448,8 @@ async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
         cat = str(source.get('CategoryEN', 'Unknown'))
         subj = str(source.get('IncidentSubject', ''))
         msg = str(source.get('IncidentMessage', ''))
+
+        es.update(index=INDEX_NAME, id=uid, body={"doc": {"ai_status": "processing"}})
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Elasticsearch Error: {str(e)}")
@@ -458,6 +466,7 @@ async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
         # }
         
     except Exception as e:
+        es.update(index=INDEX_NAME,id=uid,body={"doc": {"ai_status": "failed"}})
         print(f"AI Engine Error: {e}")
         raise HTTPException(status_code=500, detail=f"AI Processing Error: {str(e)}")
 
@@ -466,6 +475,7 @@ async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
         update_body = {
             "doc": {
                 "ai_analysis": ai_result,  # เขียนทับ field ai_analysis เดิม
+                "ai_status": "auto_generated",
                 "ai_generated_at": datetime.now().isoformat() # (Optional) แปะเวลาที่ gen ไว้ด้วย
             }
         }
