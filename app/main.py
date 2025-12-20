@@ -327,8 +327,13 @@ async def get_analyzed_logs(
 ):
     body = {
         "query": {
-            "exists": {
-                "field": "ai_generated_at"
+            "bool": {
+                "must": [
+                    { "exists": { "field": "ai_generated_at" } }
+                ],
+                "must_not": [
+                    { "exists": { "field": "soc_action.selected_method_id" } }
+                ]
             }
         },
         "size": limit,
@@ -340,17 +345,12 @@ async def get_analyzed_logs(
     }
 
     if search_after:
-        try:
-            body["search_after"] = json.loads(search_after)
-        except json.JSONDecodeError:
-            fixed = search_after.replace('\\"', '"')
-            body["search_after"] = json.loads(fixed)
+        body["search_after"] = json.loads(search_after)
 
     res = es.search(index=INDEX_NAME, body=body)
 
     hits = res["hits"]["hits"]
     items = [{"id": h["_id"], **h["_source"]} for h in hits]
-
     next_cursor = json.dumps(hits[-1]["sort"]) if hits else None
 
     return {
@@ -383,7 +383,41 @@ async def get_logs_summary(user: str = Depends(get_current_user)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/logs/soc-actioned")
+async def get_soc_actioned_logs(
+    limit: int = Query(50, le=200),
+    search_after: Optional[str] = None,
+    user: str = Depends(get_current_user),
+):
+    body = {
+        "query": {
+            "exists": {
+                "field": "soc_action.selected_method_id"
+            }
+        },
+        "size": limit,
+        "track_total_hits": False,
+        "sort": [
+            {"soc_action.selected_at": "desc"},
+            {"_id": "desc"}
+        ]
+    }
 
+    if search_after:
+        body["search_after"] = json.loads(search_after)
+
+    res = es.search(index=INDEX_NAME, body=body)
+
+    hits = res["hits"]["hits"]
+    items = [{"id": h["_id"], **h["_source"]} for h in hits]
+
+    next_cursor = json.dumps(hits[-1]["sort"]) if hits else None
+
+    return {
+        "data": items,
+        "next_cursor": next_cursor
+    }
 
 # --- Route Get by TicketId ---
 @app.get("/log/ticket/{ticket_id}")
