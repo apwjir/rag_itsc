@@ -14,12 +14,17 @@ def auto_analyze_pending_logs(es: Elasticsearch):
     """
     query = {
         "query": {
-            "term": {
-                "ai_status": "pending"
+            "bool": {
+                "must": [
+                    { "term": { "ai_status": "pending" } }
+                ],
+                "must_not": [
+                    { "exists": { "field": "soc_action.selected_method_id" } }
+                ]
             }
         },
         "size": MAX_AUTO_ANALYZE,
-        "sort": [{"@timestamp": "desc"}]
+        "sort": [{ "@timestamp": "desc" }]
     }
 
     res = es.search(index=INDEX_NAME, body=query)

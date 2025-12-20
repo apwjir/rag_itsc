@@ -15,6 +15,9 @@ import qdrant_client
 from app.api.auth import router as auth_router 
 from app.core.deps import get_current_user
 from app.api.auto_analyze import router as auto_analyze_router
+from app.api.soc_action import router as soc_action_router
+from app.db.es_client import es, INDEX_NAME
+
 
 # --- Lifespan Manager ---
 @asynccontextmanager
@@ -42,8 +45,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # เชื่อมต่อ Elasticsearch
-es = Elasticsearch("http://localhost:9200")
-INDEX_NAME = "cmu-incidents-fastapi"
+# es = Elasticsearch("http://localhost:9200")
+# INDEX_NAME = "cmu-incidents-fastapi"
 
 # --- Function 1: แปลงวันที่ ---
 def parse_date_from_ticket(ticket_id):
@@ -80,12 +83,6 @@ def parse_date_from_ticket(ticket_id):
         print(f"Date Parse Error: {e}") 
         return datetime.now().isoformat()
 
-# --- Function 2: โครงสร้าง AI เริ่มต้น ---
-def get_empty_ai_structure():
-    return {
-        "mitigation_plan": [], 
-        "related_threats": []  
-    }
 
 # --- Pydantic Models (สำหรับรับข้อมูล Update) ---
 class MitigationItem(BaseModel):
@@ -120,6 +117,10 @@ app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 # --- Include Auto Analyze Router ---
 app.include_router(auto_analyze_router, tags=["Auto Analysis"])
 
+# --- Include SOC Select Action Router ---
+app.include_router(soc_action_router)
+
+
 # --- Route Upload ---
 @app.post("/upload-log/")
 async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_current_user)):
@@ -148,10 +149,11 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
             doc['@timestamp'] = parse_date_from_ticket(doc.get('TicketId'))
             
             # 3. ใส่โครงสร้าง AI (เริ่มแรกเป็นค่าว่าง)
-            doc['ai_analysis'] = get_empty_ai_structure()
+            doc['ai_analysis'] = None
             doc["ai_status"] = "pending"
             doc["ai_generated_at"] = None
 
+            # 4. เตรียมข้อมูลสำหรับ Bulk Insert
             actions.append({
                 "_index": "cmu-incidents-fastapi",
                 "_id": generated_uid, 
