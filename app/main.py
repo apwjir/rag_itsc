@@ -384,6 +384,81 @@ async def get_logs_summary(user: str = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+@app.get("/logs/summary/analysis")
+async def summary_analysis(user: str = Depends(get_current_user)):
+    analyzed_pending_soc = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "bool": {
+                    "must": [
+                        { "exists": { "field": "ai_generated_at" } }
+                    ],
+                    "must_not": [
+                        { "exists": { "field": "soc_action.selected_method_id" } }
+                    ]
+                }
+            }
+        }
+    )["count"]
+
+    return {
+        "analyzed_pending_soc": analyzed_pending_soc
+    }
+
+@app.get("/logs/summary/unanalysis")
+async def summary_unanalysis(user: str = Depends(get_current_user)):
+    unanalyzed = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "bool": {
+                    "must_not": [
+                        { "exists": { "field": "ai_generated_at" } }
+                    ]
+                }
+            }
+        }
+    )["count"]
+
+    return {
+        "unanalyzed": unanalyzed
+    }
+
+@app.get("/logs/summary/soc")
+async def summary_soc(user: str = Depends(get_current_user)):
+    responded = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "exists": {
+                    "field": "soc_action.selected_method_id"
+                }
+            }
+        }
+    )["count"]
+
+    avg_rating = es.search(
+        index=INDEX_NAME,
+        body={
+            "size": 0,
+            "query": {
+                "exists": { "field": "soc_action.rating" }
+            },
+            "aggs": {
+                "avg_rating": {
+                    "avg": { "field": "soc_action.rating" }
+                }
+            }
+        }
+    )["aggregations"]["avg_rating"]["value"]
+
+    return {
+        "responded": responded,
+        "avg_rating": round(avg_rating, 2) if avg_rating else None
+    }
+
+    
 @app.get("/logs/soc-actioned")
 async def get_soc_actioned_logs(
     limit: int = Query(50, le=200),
