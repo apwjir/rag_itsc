@@ -17,6 +17,7 @@ from app.core.deps import get_current_user
 from app.api.auto_analyze import router as auto_analyze_router
 from app.api.soc_action import router as soc_action_router
 from app.db.es_client import es, INDEX_NAME
+from app.api.dashboard import router as dashboard_router
 
 
 # --- Lifespan Manager ---
@@ -120,6 +121,8 @@ app.include_router(auto_analyze_router, tags=["Auto Analysis"])
 # --- Include SOC Select Action Router ---
 app.include_router(soc_action_router)
 
+# --- Include Dashboard Router ---
+app.include_router(dashboard_router)
 
 # --- Route Upload ---
 @app.post("/upload-log/")
