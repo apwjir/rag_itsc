@@ -494,6 +494,70 @@ async def get_soc_actioned_logs(
         "next_cursor": next_cursor
     }
 
+@app.get("/dashboard/summary")
+async def dashboard_summary(user: str = Depends(get_current_user)):
+    total = es.count(index=INDEX_NAME)["count"]
+
+    pending_analysis = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "bool": {
+                    "must_not": [
+                        { "exists": { "field": "ai_generated_at" } }
+                    ]
+                }
+            }
+        }
+    )["count"]
+
+    resolved = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "exists": {
+                    "field": "soc_action.selected_method_id"
+                }
+            }
+        }
+    )["count"]
+
+    critical = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "match_phrase": {
+                    "PiorityEN": "High"
+                }
+            }
+        }
+    )["count"]
+
+    today = datetime.utcnow().date().isoformat()
+
+    new_today = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "range": {
+                    "@timestamp": {
+                        "gte": today,
+                        "lte": "now"
+                    }
+                }
+            }
+        }
+    )["count"]
+
+    return {
+        "totalIncidents": total,
+        "pendingAnalysis": pending_analysis,
+        "resolvedCases": resolved,
+        "criticalAlerts": critical,
+        "newToday": new_today,
+    }
+
+
 # --- Route Get by TicketId ---
 @app.get("/log/ticket/{ticket_id}")
 async def get_log_by_ticket_id(ticket_id: str, user: str = Depends(get_current_user)):
