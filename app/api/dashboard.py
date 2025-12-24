@@ -42,3 +42,59 @@ async def threat_type_distribution(
         "totalCategories": len(buckets),
         "data": data
     }
+
+@router.get("/severity")
+async def severity_distribution(
+    user: str = Depends(get_current_user)
+):
+    body = {
+        "size": 0,
+        "aggs": {
+            "raw_severity": {
+                "terms": {
+                    "field": "PiorityEN.keyword",
+                    "size": 20
+                }
+            }
+        }
+    }
+
+    res = es.search(index=INDEX_NAME, body=body)
+    buckets = res["aggregations"]["raw_severity"]["buckets"]
+
+    # -------------------------
+    # Map → Severity Levels
+    # -------------------------
+    severity_map = {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Information": 0,
+    }
+
+    for b in buckets:
+        key = b["key"]
+        count = b["doc_count"]
+
+        if key.startswith("Critical"):
+            severity_map["Critical"] += count
+        elif key.startswith("High"):
+            severity_map["High"] += count
+        elif key.startswith("Medium"):
+            severity_map["Medium"] += count
+        elif key.startswith("Low"):
+            severity_map["Low"] += count
+        elif key.startswith("Information"):
+            severity_map["Information"] += count
+
+    data = [
+        { "name": k, "value": v }
+        for k, v in severity_map.items()
+        if v > 0
+    ]
+
+    return {
+        "total": sum(v for v in severity_map.values()),
+        "data": data
+    }
