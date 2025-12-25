@@ -1,0 +1,42 @@
+[
+  {
+    "display_name": "GPT-5.1",
+    "model_name": "gpt-5.1",
+    "provider": "OpenAI"
+  },
+  {
+    "display_name": "GPT-4.1",
+    "model_name": "gpt-4.1",
+    "provider": "OpenAI"
+  },
+  {
+    "display_name": "Claude Sonnet 4.5",
+    "model_name": "claude-sonnet-4-5-20250929",
+    "provider": "Anthropic"
+  },
+  {
+    "display_name": "Claude Haiku 4.5",
+    "model_name": "claude-haiku-4-5-20251001",
+    "provider": "Anthropic"
+  },
+  {
+    "display_name": "Claude Opus 4.1",
+    "model_name": "claude-opus-4-1-20250805",
+    "provider": "Anthropic"
+  },
+  {
+    "display_name": "Gemini 3 Pro",
+    "model_name": "gemini-3-pro-preview",
+    "provider": "Google"
+  },
+  {
+    "display_name": "GPT OSS 120B",
+    "model_name": "openai/gpt-oss-120b",
+    "provider": "Groq"
+  },
+  {
+    "display_name": "Llama 4 Scout 17B Instruct",
+    "model_name": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "provider": "Groq"
+  }
+]

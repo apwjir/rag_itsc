@@ -2,15 +2,13 @@ import json
 import os
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
-import google.generativeai as genai
-import warnings
 from qdrant_client.models import SearchRequest
+from app.services.models import get_model, ModelProvider, find_model_by_display_name
+from langchain_core.messages import HumanMessage
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # โหลดตัวแปรจาก .env
 load_dotenv()
-
-# ปิด Warning
-warnings.filterwarnings("ignore", category=UserWarning, module="google.generativeai")
 
 class AIEngine:
     def __init__(self):
@@ -18,38 +16,68 @@ class AIEngine:
         self.qdrant_host = os.getenv("QDRANT_HOST", "localhost")
         self.qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
         self.collection_name = os.getenv("COLLECTION_NAME", "mitre-attack-vectors")
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        # Support both keys but prefer GOOGLE_API_KEY for consistency with models.py
+        self.google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         
         # ชื่อโมเดล Embedding (ต้องตรงกับตอน Ingest)
-        self.embedding_model = "models/text-embedding-004"
-        self.generation_model = "models/gemini-2.5-flash"
+        # FIXED: Only use models/text-embedding-004 by Google
+        self.embedding_model_name = "models/text-embedding-004"
+        
+        # Default generation model
+        self.generation_model_name = "gemini-2.0-flash-exp"
+        self.generation_provider = ModelProvider.GOOGLE
+
+        # Override with model from (.env) by Display Name if present
+        target_display_name = os.getenv("GENERATION_MODEL_DISPLAY_NAME")
+        if target_display_name:
+            found_model = find_model_by_display_name(target_display_name)
+            if found_model:
+                print(f"--- ⚙️ Using Model from ENV: {found_model.display_name} ({found_model.model_name}) ---")
+                self.generation_model_name = found_model.model_name
+                self.generation_provider = found_model.provider
+            else:
+                print(f"--- ⚠️ Warning: Model '{target_display_name}' not found. Using default: {self.generation_model_name} ---")
 
         self.client = None
+        self.llm = None
+        self.embeddings = None
 
     def init_models(self):
         """โหลด Qdrant Client และ Config Gemini"""
         print("--- 🤖 Connecting to AI Services... ---")
         
-        # 1. Config Gemini
-        if not self.gemini_api_key:
-            raise ValueError("❌ GEMINI_API_KEY not found in .env")
-        genai.configure(api_key=self.gemini_api_key)
+        if not self.google_api_key:
+            raise ValueError("❌ GOOGLE_API_KEY or GEMINI_API_KEY not found in .env")
         
-        # 2. Connect Qdrant (ไม่ต้องโหลด SentenceTransformer แล้ว)
+        # 1. Initialize LangChain Chat Model
+        self.llm = get_model(
+            model_name=self.generation_model_name,
+            model_provider=self.generation_provider,
+            api_keys={"GOOGLE_API_KEY": self.google_api_key}
+        )
+        
+        # 2. Initialize LangChain Embeddings
+        # task_type="retrieval_query" is often supported by the underlying API, 
+        # but LangChain's wrapper might treat it differently. 
+        # For text-embedding-004, it usually auto-handles or we pass arguments if needed.
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model=self.embedding_model_name,
+            google_api_key=self.google_api_key,
+            task_type="retrieval_query"
+        )
+
+        # 3. Connect Qdrant (ไม่ต้องโหลด SentenceTransformer แล้ว)
         self.client = QdrantClient(host=self.qdrant_host, port=self.qdrant_port)
         
-        print(f"--- ✅ AI Ready (Embed: {self.embedding_model} | Gen: {self.generation_model}) ---")
+        print(f"--- ✅ AI Ready (Embed: {self.embedding_model_name} | Gen: {self.generation_model_name}) ---")
 
     def get_embedding(self, text):
-        """ฟังก์ชันแปลงข้อความให้เป็น Vector โดยใช้ Gemini"""
+        """ฟังก์ชันแปลงข้อความให้เป็น Vector โดยใช้ LangChain Embeddings"""
         try:
-            # ใช้ task_type="retrieval_query" เพราะเรากำลังเอาไปค้นหา
-            result = genai.embed_content(
-                model=self.embedding_model,
-                content=text,
-                task_type="retrieval_query" 
-            )
-            return result['embedding']
+            if not self.embeddings:
+                self.init_models()
+                
+            return self.embeddings.embed_query(text)
         except Exception as e:
             print(f"Embedding Error: {e}")
             return []
@@ -87,8 +115,6 @@ class AIEngine:
         boosted_sorted = sorted(boosted, key=lambda x: x[0], reverse=True)
         return [item[1] for item in boosted_sorted[:final_k]]
 
-
-
     def build_context_from_hits(self, hits):
         lines = []
         for i, h in enumerate(hits, 1):
@@ -101,7 +127,7 @@ class AIEngine:
         prompt = f"""
         คุณเป็นผู้เชี่ยวชาญด้าน Cybersecurity (Security Analyst).
         จงวิเคราะห์และตอบเป็น JSON เท่านั้น ห้ามมี Markdown (```json) ครอบ
-
+        
         Context ข้อมูลภัยคุกคามที่พบ:
         {context_text}
 
@@ -114,23 +140,30 @@ class AIEngine:
                 "method_id": 1,
                 "action": "ชื่อวิธีดำเนินการ (กระชับ)",
                 "detail": "รายละเอียดทางเทคนิคที่ต้องทำ",
-                "reason": "เหตุผลที่เลือกวิธีนี้ (อ้างอิงจาก Result ไหนใน context)"
+                "reason": "เขียน reason โดยอ้างอิงข้อมูลจาก context ที่ให้ไว้
+                            - ห้ามแสดงคำว่า Result, Reference, Source หรือหมายเลขใด ๆ
+                            - ให้สรุปเหตุผลเป็นข้อความธรรมดา
+                            - หากมีหลายแหล่งข้อมูล ให้รวมเหตุผลเข้าด้วยกันโดยไม่ระบุที่มาเป็นชื่อ
+                            "
             }},
             {{ "method_id": 2, ... }},
             {{ "method_id": 3, ... }}
         ]
         """
         try:
-            # ใช้ Gemini 1.5 Flash (ตัว 2.5 ยังไม่ออกเป็นทางการ อาจจะ Error ได้)
-            model = genai.GenerativeModel(self.generation_model)
-            resp = model.generate_content(prompt)
+            # ใช้ LangChain model ที่ init ไว้
+            if not self.llm:
+                 # Fallback/Lazy init if needed
+                 self.init_models()
             
-            text_resp = resp.text if hasattr(resp, "text") else str(resp)
+            response = self.llm.invoke(prompt)
+            text_resp = response.content
+            
             # Clean Markdown formatting (กันเหนียว)
             text_resp = text_resp.replace("```json", "").replace("```", "").strip()
             return json.loads(text_resp)
         except Exception as e:
-            print(f"Gemini Generate Error: {e}")
+            print(f"LLM Generate Error: {e}")
             # Return Fallback JSON กรณี Error
             return [{"method_id": 0, "action": "System Error", "detail": "AI generation failed", "reason": str(e)}]
 
@@ -149,7 +182,7 @@ class AIEngine:
             # 2. Build Context
             context = self.build_context_from_hits(hits)
             
-            # 3. Generate with Gemini
+            # 3. Generate with LLM
             mitigation_plan = self.generate_mitigation_json(query, context)
             
             # 4. Format Related Threats for Frontend
