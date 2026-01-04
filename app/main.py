@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any 
 from pydantic import BaseModel
-from app.services.ai_engine import ai_engine_instance  
+from app.services.ai_engine import ai_engine_instance,AIEngineError
 import qdrant_client
 from app.api.auth import router as auth_router 
 from app.core.deps import get_current_user
@@ -84,6 +84,67 @@ def parse_date_from_ticket(ticket_id):
         print(f"Date Parse Error: {e}") 
         return datetime.now().isoformat()
 
+def map_ai_engine_error(e: Exception):
+    # ✅ ถ้าเป็น AIEngineError ให้ map ตาม code ได้เลย
+    if isinstance(e, AIEngineError):
+        if e.code == "EXPIRED_API_KEY":
+            return HTTPException(
+                status_code=401,
+                detail={
+                    "error": "EXPIRED_API_KEY",
+                    "message": str(e),
+                    "provider_message": getattr(e, "provider_message", ""),
+                },
+            )
+        if e.code == "RATE_LIMIT":
+            return HTTPException(
+                status_code=429,
+                detail={
+                    "error": "RATE_LIMIT",
+                    "message": str(e),
+                    "provider_message": getattr(e, "provider_message", ""),
+                },
+            )
+
+        return HTTPException(
+            status_code=500,
+            detail={
+                "error": e.code,
+                "message": str(e),
+                "provider_message": getattr(e, "provider_message", ""),
+            },
+        )
+
+    # --- fallback เดิมของคุณ (กรณี error แปลก ๆ) ---
+    msg = str(e)
+    if "expired_api_key" in msg or ("Invalid API Key" in msg and "Error code: 401" in msg):
+        return HTTPException(
+            status_code=401,
+            detail={
+                "error": "EXPIRED_API_KEY",
+                "message": "AI provider API key expired/invalid. Please update API key.",
+                "provider_message": msg,
+            },
+        )
+
+    if "Error code: 429" in msg or "rate limit" in msg.lower():
+        return HTTPException(
+            status_code=429,
+            detail={
+                "error": "RATE_LIMIT",
+                "message": "AI provider rate limited. Please retry later.",
+                "provider_message": msg,
+            },
+        )
+
+    return HTTPException(
+        status_code=500,
+        detail={
+            "error": "AI_PROCESSING_ERROR",
+            "message": "AI processing failed.",
+            "provider_message": msg,
+        },
+    )
 
 # --- Pydantic Models (สำหรับรับข้อมูล Update) ---
 class MitigationItem(BaseModel):
@@ -642,11 +703,33 @@ async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
         #    "mitigation_plan": [...],
         #    "related_threats": [...]
         # }
-        
+
+        if (
+            not isinstance(ai_result, dict)
+            or "mitigation_plan" not in ai_result
+            or "related_threats" not in ai_result
+        ):
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "AI_PROCESSING_ERROR",
+                    "message": "AI returned invalid result",
+                    "provider_message": str(ai_result),
+                },
+            )
     except Exception as e:
-        es.update(index=INDEX_NAME,id=uid,body={"doc": {"ai_status": "failed"}})
-        print(f"AI Engine Error: {e}")
-        raise HTTPException(status_code=500, detail=f"AI Processing Error: {str(e)}")
+        es.update(
+            index=INDEX_NAME,
+            id=uid,
+            body={
+                "doc": {
+                    "ai_status": "failed",
+                    "ai_generated_at": None,
+                    "ai_analysis": None,
+                }
+            },
+        )
+        raise map_ai_engine_error(e)
 
     # 3. อัปเดตข้อมูลกลับลง Elasticsearch
     try: 
@@ -668,3 +751,10 @@ async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update Elasticsearch: {str(e)}")
+
+@app.get("/ai/health")
+async def ai_health(user: str = Depends(get_current_user)):
+    try:
+        return {"status": "ok"}
+    except Exception as e:
+        raise map_ai_engine_error(e)
