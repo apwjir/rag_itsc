@@ -194,11 +194,6 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
     try:
         contents = await file.read()
         df = pd.read_csv(io.BytesIO(contents))
-        
-        # --- Filter out Admin Information Sharing ---
-        # กรองข้อมูลก่อน Clean Data เพื่อลดจำนวน row ที่ไม่จำเป็น
-        if 'CategoryEN' in df.columns:
-             df = df[df['CategoryEN'] != 'Admin Information Sharing']
 
         df = df.where(pd.notnull(df), None)
         
@@ -340,48 +335,71 @@ async def search_logs(
         "data": items,
         "next_cursor": next_cursor,
         "count": len(items)
-    }
+    } 
+
+PRIORITY_MAP = {
+    "high": 2,
+    "medium": 3,
+    "low": 4,
+}
 
 @app.get("/logs/unanalysis")
 async def get_unanalysis_logs(
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, ge=1, le=50),
     search_after: Optional[str] = None,
-    user: str = Depends(get_current_user)
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    priority: Optional[List[str]] = Query(None),
+    priority_id: Optional[List[int]] = Query(None),
+    category: Optional[List[str]] = Query(None),
+    incident_id: Optional[str] = Query(None),
+    user: str = Depends(get_current_user),
 ):
+    filters = []
+    must_not = [{"exists": {"field": "ai_generated_at"}}]
+
+    if date_from or date_to:
+        r = {}
+        if date_from: r["gte"] = date_from
+        if date_to: r["lte"] = date_to
+        filters.append({"range": {"@timestamp": r}})
+
+    if priority_id or priority:
+        should = []
+        if priority_id:
+            should.append({"terms": {"PiorityId": priority_id}})
+        if priority:
+            for p in priority:
+                s = str(p).strip()
+                should.append({"prefix": {"PiorityEN.keyword": s}})
+        filters.append({"bool": {"should": should, "minimum_should_match": 1}})
+
+    if category:
+        filters.append({"terms": {"CategoryEN.keyword": category}})
+
+    if incident_id:
+        s = str(incident_id).strip()
+        if s.isdigit():
+            filters.append({"term": {"IncidentsId": int(s)}})
+        else:
+            filters.append({"term": {"IncidentsId.keyword": s}})
+
     body = {
-        "query": {
-            "bool": {
-                "must_not": [
-                    { "exists": { "field": "ai_generated_at" } }
-                ]
-            }
-        },
+        "query": {"bool": {"filter": filters, "must_not": must_not}},
         "size": limit,
         "track_total_hits": False,
-        "sort": [
-            {"@timestamp": "desc"},
-            {"_id": "desc"}
-        ]
+        "sort": [{"@timestamp": "desc"}, {"_id": "desc"}],
     }
 
     if search_after:
-        try:
-            body["search_after"] = json.loads(search_after)
-        except json.JSONDecodeError:
-            fixed = search_after.replace('\\"', '"')
-            body["search_after"] = json.loads(fixed)
+        body["search_after"] = json.loads(search_after)
 
-    res = es.search(index=INDEX_NAME, body=body)
-
+    res = es.search(index="cmu-incidents-fastapi", body=body)
     hits = res["hits"]["hits"]
     items = [{"id": h["_id"], **h["_source"]} for h in hits]
-
     next_cursor = json.dumps(hits[-1]["sort"]) if hits else None
+    return {"data": items, "next_cursor": next_cursor}
 
-    return {
-        "data": items,
-        "next_cursor": next_cursor
-    }
 
 @app.get("/logs/analyzed")
 async def get_analyzed_logs(

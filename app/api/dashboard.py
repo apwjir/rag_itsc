@@ -9,7 +9,8 @@ router = APIRouter(
 
 @router.get("/threat-types")
 async def threat_type_distribution(
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(50, ge=1, le=500),
+    for_filter: bool = Query(False),
     user: str = Depends(get_current_user)
 ):
     body = {
@@ -18,30 +19,30 @@ async def threat_type_distribution(
             "threat_types": {
                 "terms": {
                     "field": "CategoryEN.keyword",
-                    "size": limit,                  # ⭐ ใช้ limit
-                    "order": { "_count": "desc" }
+                    "size": limit,
+                    "order": {"_key": "asc"} if for_filter else {"_count": "desc"}
                 }
             }
         }
     }
 
     res = es.search(index=INDEX_NAME, body=body)
-
     buckets = res["aggregations"]["threat_types"]["buckets"]
 
-    data = [
-        {
-            "name": b["key"],
-            "value": b["doc_count"]
-        }
-        for b in buckets
-    ]
+    # เดิมสำหรับ chart
+    data = [{"name": b["key"], "value": b["doc_count"]} for b in buckets]
+
+    # ถ้าเรียกไปทำ dropdown filter
+    if for_filter:
+        options = [{"value": b["key"], "label": b["key"]} for b in buckets if str(b["key"]).strip()]
+        return {"data": options}
 
     return {
         "limit": limit,
         "totalCategories": len(buckets),
         "data": data
     }
+
 
 @router.get("/severity")
 async def severity_distribution(
