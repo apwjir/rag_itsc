@@ -19,10 +19,15 @@ from app.api.soc_action import router as soc_action_router
 from app.db.es_client import es, INDEX_NAME
 from app.api.dashboard import router as dashboard_router
 
+from app.services.auto_worker import run_auto_worker
+from threading import Thread, Event
+stop_event = Event()
+worker_thread: Thread | None = None
 
 # --- Lifespan Manager ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global worker_thread
     print("🚀 Server Starting... Initializing AI Engine...")
     
     # --- 🔍 แก้เป็นบรรทัดนี้ครับ ---
@@ -33,6 +38,19 @@ async def lifespan(app: FastAPI):
     try:
         ai_engine_instance.init_models()
 
+        stop_event.clear()
+
+        if not worker_thread or not worker_thread.is_alive():
+            worker_thread = Thread(
+                target=run_auto_worker,
+                args=(stop_event,),
+                daemon=True,
+            )
+            worker_thread.start()
+            print("Auto worker thread started")
+        else:
+            print("ℹ️ Auto worker thread already running")
+
         if ai_engine_instance.client is None:
             print("Qdrant not connected")
         else:
@@ -41,6 +59,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"💥 Error during init: {e}")
     yield
+
+    stop_event.set()
+    if worker_thread and worker_thread.is_alive():
+        worker_thread.join(timeout=5)
     print("🛑 Server Stopping...")
     
 app = FastAPI(lifespan=lifespan)
