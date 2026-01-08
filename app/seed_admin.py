@@ -18,7 +18,8 @@ def seed_admin():
     # สร้าง admin user ใหม่
     admin_user = User(
         username=admin_username,
-        hashed_password=get_password_hash(admin_password)
+        hashed_password=get_password_hash(admin_password),
+        role="admin",
     )
 
     db.add(admin_user)

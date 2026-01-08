@@ -18,6 +18,7 @@ from app.api.auto_analyze import router as auto_analyze_router
 from app.api.soc_action import router as soc_action_router
 from app.db.es_client import es, INDEX_NAME
 from app.api.dashboard import router as dashboard_router
+from app.api.users import router as users_router
 
 from app.services.auto_worker import run_auto_worker
 from threading import Thread, Event
@@ -206,6 +207,9 @@ app.include_router(soc_action_router)
 
 # --- Include Dashboard Router ---
 app.include_router(dashboard_router)
+
+# --- Include Users Router ---
+app.include_router(users_router)
 
 # --- Route Upload ---
 @app.post("/upload-log/")
