@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+from sqlalchemy.exc import IntegrityError
 
 from app.db.session import get_db
 from app.db.models.user import User
@@ -24,7 +25,7 @@ class UserOut(BaseModel):
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=6, max_length=128)
-    role: UserRole = "intern"
+    role: UserRole = "member"
 
 class UserUpdate(BaseModel):
     # admin แก้ได้: role / password
@@ -45,17 +46,21 @@ def create_user(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    exists = db.query(User).filter(User.username == payload.username).first()
-    if exists:
-        raise HTTPException(status_code=409, detail="Username already exists")
+    username = payload.username.strip()
 
     u = User(
-        username=payload.username,
+        username=username,
         hashed_password=hash_password(payload.password),
         role=payload.role,
     )
     db.add(u)
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Username already exists")
+
     db.refresh(u)
     return u
 
@@ -64,13 +69,23 @@ def update_user(
     user_id: int,
     payload: UserUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     u = db.query(User).filter(User.id == user_id).first()
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
 
+    
     if payload.role is not None:
+        
+        if admin.id == user_id and payload.role != "admin":
+            raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+        if u.role == "admin" and payload.role != "admin":
+            admin_count = db.query(User).filter(User.role == "admin").count()
+            if admin_count <= 1:
+                raise HTTPException(status_code=400, detail="System must have at least 1 admin")
+
         u.role = payload.role
 
     if payload.password is not None:
@@ -93,6 +108,12 @@ def delete_user(
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if u.role == "admin":
+        admin_count = db.query(User).filter(User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="System must have at least 1 admin")
+
     db.delete(u)
     db.commit()
     return {"status": "success"}
+
