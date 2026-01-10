@@ -1,3 +1,4 @@
+from app.db.models.user import User
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime
@@ -26,7 +27,7 @@ class SOCActionRequest(BaseModel):
 async def select_soc_action(
     uid: str,
     body: SOCActionRequest,
-    user: str = Depends(get_current_user)
+    user: User = Depends(get_current_user)
 ):
     if not es.exists(index=INDEX_NAME, id=uid):
         raise HTTPException(status_code=404, detail="Log not found")
@@ -39,7 +40,9 @@ async def select_soc_action(
         "selected_action": body.selected_action,
         "comment": body.comment,
         "rating": body.rating,
-        "selected_by": user,
+        "selected_by": user.username,
+        "selected_by_id": user.id,    
+        "selected_by_role": user.role,    
         "selected_at": datetime.now().isoformat(),
     }
 
