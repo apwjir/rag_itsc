@@ -1,81 +1,81 @@
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
+
 from app.core.deps import get_current_user
 from app.db.es_client import es, INDEX_NAME
+from app.db.es_filters import build_organization_filter
 
-router = APIRouter(
-    prefix="/dashboard",
-    tags=["Dashboard"]
-)
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
 
 @router.get("/threat-types")
 async def threat_type_distribution(
     limit: int = Query(50, ge=1, le=500),
     for_filter: bool = Query(False),
-    user: str = Depends(get_current_user)
+    organizations: Optional[List[str]] = Query(None),
+    user: Any = Depends(get_current_user),
 ):
-    body = {
+    filters = build_organization_filter(organizations)
+
+    body: Dict[str, Any] = {
         "size": 0,
+        "query": {"bool": {"filter": filters}} if filters else {"match_all": {}},
         "aggs": {
             "threat_types": {
                 "terms": {
                     "field": "CategoryEN.keyword",
                     "size": limit,
-                    "order": {"_key": "asc"} if for_filter else {"_count": "desc"}
+                    "order": {"_key": "asc"} if for_filter else {"_count": "desc"},
                 }
             }
-        }
+        },
     }
 
     res = es.search(index=INDEX_NAME, body=body)
     buckets = res["aggregations"]["threat_types"]["buckets"]
 
-    # เดิมสำหรับ chart
     data = [{"name": b["key"], "value": b["doc_count"]} for b in buckets]
 
-    # ถ้าเรียกไปทำ dropdown filter
     if for_filter:
-        options = [{"value": b["key"], "label": b["key"]} for b in buckets if str(b["key"]).strip()]
-        return {"data": options}
+        options = [
+            {"value": b["key"], "label": b["key"]}
+            for b in buckets
+            if str(b["key"]).strip()
+        ]
+        return {"filters": {"organizations": organizations or []}, "data": options}
 
     return {
         "limit": limit,
         "totalCategories": len(buckets),
-        "data": data
+        "filters": {"organizations": organizations or []},
+        "data": data,
     }
 
 
 @router.get("/severity")
 async def severity_distribution(
-    user: str = Depends(get_current_user)
+    organizations: Optional[List[str]] = Query(None),
+    user: Any = Depends(get_current_user),
 ):
-    body = {
+    filters = build_organization_filter(organizations)
+
+    body: Dict[str, Any] = {
         "size": 0,
+        "query": {"bool": {"filter": filters}} if filters else {"match_all": {}},
         "aggs": {
             "raw_severity": {
-                "terms": {
-                    "field": "PiorityEN.keyword",
-                    "size": 20
-                }
+                "terms": {"field": "PiorityEN.keyword", "size": 20}
             }
-        }
+        },
     }
 
     res = es.search(index=INDEX_NAME, body=body)
     buckets = res["aggregations"]["raw_severity"]["buckets"]
 
-    # -------------------------
-    # Map → Severity Levels
-    # -------------------------
-    severity_map = {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Information": 0,
-    }
+    severity_map = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Information": 0}
 
     for b in buckets:
-        key = b["key"]
+        key = str(b["key"] or "")
         count = b["doc_count"]
 
         if key.startswith("Critical"):
@@ -89,13 +89,40 @@ async def severity_distribution(
         elif key.startswith("Information"):
             severity_map["Information"] += count
 
-    data = [
-        { "name": k, "value": v }
-        for k, v in severity_map.items()
-        if v > 0
-    ]
+    data = [{"name": k, "value": v} for k, v in severity_map.items() if v > 0]
 
     return {
-        "total": sum(v for v in severity_map.values()),
-        "data": data
+        "filters": {"organizations": organizations or []},
+        "total": sum(severity_map.values()),
+        "data": data,
     }
+
+
+@router.get("/organizations")
+async def organizations_options(
+    limit: int = Query(500, ge=1, le=5000),
+    user: Any = Depends(get_current_user),
+):
+    body: Dict[str, Any] = {
+        "size": 0,
+        "aggs": {
+            "orgs": {
+                "terms": {
+                    "field": "OrganizationMaskEn.keyword",
+                    "size": limit,
+                    "order": {"_key": "asc"},
+                }
+            }
+        },
+    }
+
+    res = es.search(index=INDEX_NAME, body=body)
+    buckets = res["aggregations"]["orgs"]["buckets"]
+
+    options = [
+        {"value": b["key"], "label": b["key"]}
+        for b in buckets
+        if str(b["key"]).strip()
+    ]
+
+    return {"total": len(options), "data": options}
