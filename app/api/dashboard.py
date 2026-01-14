@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from app.core.deps import get_current_user
 from app.db.es_client import es, INDEX_NAME
 from app.db.es_filters import build_organization_filter
+from app.services.risk_calculate import calculate_top_weighted_risks
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -126,3 +127,14 @@ async def organizations_options(
     ]
 
     return {"total": len(options), "data": options}
+
+@router.get("/top-risks")
+async def get_top_risks(
+    limit: int = Query(None),
+    user: str = Depends(get_current_user)
+):
+    data = await calculate_top_weighted_risks(limit=limit)
+    return {
+        "status": "success",
+        "data": data
+    }
