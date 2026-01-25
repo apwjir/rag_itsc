@@ -1,6 +1,7 @@
 import json
 import time
 from threading import Event
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -15,21 +16,54 @@ def load_setting(db: Session) -> AutoAnalyzeSetting | None:
 
 
 def fetch_pending_logs(limit: int):
-    # pending = ไม่มี ai_generated_at และ ai_status ไม่ใช่ processing
     body = {
         "query": {
             "bool": {
-                "must_not": [{"exists": {"field": "ai_generated_at"}}],
+                "must_not": [
+                    {"exists": {"field": "ai_generated_at"}},
+                    {"prefix": {"PiorityEN.keyword": "Information"}},
+                ],
                 "filter": [
-                    {"bool": {"must_not": [{"term": {"ai_status.keyword": "processing"}}]}}
-                ]
+                    {
+                        "bool": {
+                            "must_not": [
+                                {"term": {"ai_status.keyword": "processing"}}
+                            ]
+                        }
+                    }
+                ],
             }
         },
         "size": limit,
-        "sort": [{"@timestamp": "asc"}, {"_id": "asc"}],
+        "sort": [
+            {
+                "_script": {
+                    "type": "number",
+                    "script": {
+                        "lang": "painless",
+                        "source": """
+                        if (doc['PiorityEN.keyword'].size() == 0) return 99;
+                        def p = doc['PiorityEN.keyword'].value;
+
+                        if (p.startsWith('Critical')) return 1;
+                        if (p.startsWith('High')) return 2;
+                        if (p.startsWith('Medium')) return 3;
+                        if (p.startsWith('Low')) return 4;
+
+                        return 99;
+                        """
+                    },
+                    "order": "asc"
+                }
+            },
+            { "ingested_at": "desc" }, 
+            {"_id": "asc"}
+        ],
     }
+
     res = es.search(index=INDEX_NAME, body=body)
     return res["hits"]["hits"]
+
 
 
 def mark_processing(doc_id: str) -> bool:
@@ -47,7 +81,7 @@ def mark_done(doc_id: str, ai_result: dict):
             "doc": {
                 "ai_analysis": ai_result,
                 "ai_status": "auto_generated",
-                "ai_generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "ai_generated_at": datetime.now(timezone.utc).isoformat(),
             }
         },
     )

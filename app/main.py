@@ -7,7 +7,7 @@ import io
 import numpy as np
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any 
 from pydantic import BaseModel
 from app.services.ai_engine import ai_engine_instance,AIEngineError
@@ -19,6 +19,7 @@ from app.api.soc_action import router as soc_action_router
 from app.db.es_client import es, INDEX_NAME
 from app.api.dashboard import router as dashboard_router
 from app.api.users import router as users_router
+from app.db.es_filters import normalize_date
 
 from app.services.auto_worker import run_auto_worker
 from threading import Thread, Event
@@ -68,47 +69,7 @@ async def lifespan(app: FastAPI):
     
 app = FastAPI(lifespan=lifespan)
 
-# เชื่อมต่อ Elasticsearch
-# es = Elasticsearch("http://localhost:9200")
-# INDEX_NAME = "cmu-incidents-fastapi"
-
-# --- Function 1: แปลงวันที่ ---
-def parse_date_from_ticket(ticket_id):
-    try:
-        if ticket_id is None or (isinstance(ticket_id, float) and np.isnan(ticket_id)):
-             return datetime.now().isoformat()
-
-        date_part = str(ticket_id).split('-')[0]
-        
-        if not date_part.isdigit() or len(date_part) < 4:
-             return datetime.now().isoformat()
-
-        year = int(date_part[:4])
-        rest = date_part[4:]
-        
-        if len(rest) == 3:
-            month = int(rest[0])
-            day = int(rest[1:])
-        elif len(rest) == 4:
-            month = int(rest[:2])
-            day = int(rest[2:])
-        else:
-            if rest and int(rest) > 1231:
-                 month = int(rest[0])
-                 day = int(rest[1:])
-            elif rest:
-                 month = int(rest[:2])
-                 day = int(rest[2:])
-            else:
-                 return datetime.now().isoformat()
-                 
-        return datetime(year, month, day).isoformat()
-    except Exception as e:
-        print(f"Date Parse Error: {e}") 
-        return datetime.now().isoformat()
-
 def map_ai_engine_error(e: Exception):
-    # ✅ ถ้าเป็น AIEngineError ให้ map ตาม code ได้เลย
     if isinstance(e, AIEngineError):
         if e.code == "EXPIRED_API_KEY":
             return HTTPException(
@@ -185,13 +146,13 @@ class AIAnalysisUpdate(BaseModel):
 
 #--- CORS Middleware ---
 origins = [
-    "http://localhost:5173",  # ← Vite frontend
+    "http://localhost:5173",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,  # ← สำคัญสำหรับ Cookies ของ JWT Session
+    allow_credentials=True, 
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -227,18 +188,23 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
         for _, row in df.iterrows():
             doc = row.to_dict()
             
-            # 1. สร้าง UID
             generated_uid = str(uuid.uuid4())
 
-            # 2. แปลงวันที่
-            doc['@timestamp'] = parse_date_from_ticket(doc.get('TicketId'))
+            doc["ingested_at"] = datetime.now(timezone.utc).isoformat()
             
-            # 3. ใส่โครงสร้าง AI (เริ่มแรกเป็นค่าว่าง)
+            try:
+                doc["CreateDate"] = normalize_date(
+                    doc.get("CreateDate"),
+                    allow_now_if_missing=False,
+                )
+            except Exception as e:
+                print(f"CreateDate normalize failed: {doc.get('CreateDate')} → {e}")
+                doc["CreateDate"] = None
+            
             doc['ai_analysis'] = None
             doc["ai_status"] = "pending"
             doc["ai_generated_at"] = None
 
-            # 4. เตรียมข้อมูลสำหรับ Bulk Insert
             actions.append({
                 "_index": "cmu-incidents-fastapi",
                 "_id": generated_uid, 
@@ -323,9 +289,9 @@ async def search_logs(
         "size": limit,
         "track_total_hits": False,
         "sort": [
-            {"@timestamp": "desc"},
-            {"uid.keyword": "desc"}  # unique tie-breaker
-        ],
+            {"ingested_at": "desc"},
+            {"_id": "desc"}
+        ]
     }
 
     if search_after:
@@ -386,9 +352,12 @@ async def get_unanalysis_logs(
 
     if date_from or date_to:
         r = {}
-        if date_from: r["gte"] = date_from
-        if date_to: r["lte"] = date_to
-        filters.append({"range": {"@timestamp": r}})
+        if date_from:
+            r["gte"] = normalize_date(date_from)
+        if date_to:
+            r["lte"] = normalize_date(date_to, end_of_day=True)
+
+        filters.append({"range": {"CreateDate": r}})
 
     if priority_id or priority:
         should = []
@@ -414,7 +383,7 @@ async def get_unanalysis_logs(
         "query": {"bool": {"filter": filters, "must_not": must_not}},
         "size": limit,
         "track_total_hits": False,
-        "sort": [{"@timestamp": "desc"}, {"_id": "desc"}],
+        "sort": [{"IncidentsId": "desc"}, {"_id": "desc"}],
     }
 
     if search_after:
@@ -447,7 +416,7 @@ async def get_analyzed_logs(
         "size": limit,
         "track_total_hits": False,
         "sort": [
-            {"@timestamp": "desc"},
+            {"IncidentsId": "desc"},
             {"_id": "desc"}
         ]
     }
@@ -648,7 +617,7 @@ async def dashboard_summary(user: str = Depends(get_current_user)):
         body={
             "query": {
                 "range": {
-                    "@timestamp": {
+                    "ingested_at": {
                         "gte": today,
                         "lte": "now"
                     }

@@ -10,10 +10,6 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 # โหลดตัวแปรจาก .env
 load_dotenv()
 
-
-# ------------------------------
-# ✅ Custom Exceptions
-# ------------------------------
 class AIEngineError(Exception):
     def __init__(self, code: str, message: str, provider_message: str = ""):
         super().__init__(message)
@@ -35,8 +31,8 @@ class AIEngine:
         self.embedding_model_name = "models/text-embedding-004"
 
         # Default generation model
-        self.generation_model_name = "gemini-2.0-flash-exp"
-        self.generation_provider = ModelProvider.GOOGLE
+        self.generation_model_name = "openai/gpt-oss-120b"
+        self.generation_provider = ModelProvider.GROQ
 
         # Override with model from (.env) by Display Name if present
         target_display_name = os.getenv("GENERATION_MODEL_DISPLAY_NAME")
@@ -57,9 +53,6 @@ class AIEngine:
         self.llm = None
         self.embeddings = None
 
-    # ------------------------------
-    # ✅ Error classifier
-    # ------------------------------
     def _raise_if_key_or_rate_error(self, e: Exception):
         s = str(e)
 
@@ -103,7 +96,7 @@ class AIEngine:
         self.llm = get_model(
             model_name=self.generation_model_name,
             model_provider=self.generation_provider,
-            api_keys={"GOOGLE_API_KEY": self.google_api_key},
+            # api_keys={"GOOGLE_API_KEY": self.google_api_key},
         )
 
         # 2) Initialize LangChain Embeddings
@@ -255,6 +248,7 @@ class AIEngine:
                 if not self.llm:
                     self.init_models()
 
+                print(self.llm.model_name)
                 response = self.llm.invoke(prompt)
                 text_resp = response.content.strip()
                 text_resp = text_resp.replace("```json", "").replace("```", "").strip()

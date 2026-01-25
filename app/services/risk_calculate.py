@@ -1,5 +1,7 @@
 from app.db.es_client import es, INDEX_NAME
+from langchain.tools import tool
 
+# @tool(description="Calculate top weighted risks")
 async def calculate_top_weighted_risks(limit: int = None):
     es_size = limit if limit is not None else 1000 
 
