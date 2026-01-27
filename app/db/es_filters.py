@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone , date
 
 DATE_FORMATS = [
     "%Y-%m-%d",
@@ -47,3 +47,42 @@ def normalize_date(
             continue
 
     raise ValueError(f"Unsupported date format: {value}")
+
+
+def build_time_range_filter(
+    range: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+):
+    if range == "7d":
+        return {"range": {"CreateDate": {"gte": "now-7d/d", "lte": "now"}}}
+    if range == "30d":
+        return {"range": {"CreateDate": {"gte": "now-30d/d", "lte": "now"}}}
+    if range == "custom" and from_date and to_date:
+        return {
+            "range": {
+                "CreateDate": {
+                    "gte": normalize_date(from_date),
+                    "lte": normalize_date(to_date, end_of_day=True),
+                }
+            }
+        }
+    return None
+
+
+def resolve_calendar_interval(
+    range: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> str:
+    if range in ["7d", "30d"]:
+        return "day"
+
+    if range == "custom" and from_date and to_date:
+        d1 = date.fromisoformat(from_date)
+        d2 = date.fromisoformat(to_date)
+        days = (d2 - d1).days
+
+        return "month" if days > 90 else "day"
+
+    return "day"

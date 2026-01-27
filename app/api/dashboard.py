@@ -1,10 +1,11 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import get_current_user
 from app.db.es_client import es, INDEX_NAME
 from app.db.es_filters import build_organization_filter
 from app.services.risk_calculate import calculate_top_weighted_risks
+from app.db.es_filters import build_time_range_filter, resolve_calendar_interval
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -138,3 +139,50 @@ async def get_top_risks(
         "status": "success",
         "data": data
     }
+
+@router.get("/incident-trends")
+async def incident_trends(
+    range: Literal["7d", "30d", "custom"] = Query("7d"),
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    user: str = Depends(get_current_user),
+):
+    time_filter = build_time_range_filter(range, from_date, to_date)
+    interval = resolve_calendar_interval(range, from_date, to_date)
+
+    filters = []
+    if time_filter:
+        filters.append(time_filter)
+
+    body = {
+        "size": 0,
+        "query": {"bool": {"filter": filters}},
+        "aggs": {
+            "by_date": {
+                "date_histogram": {
+                    "field": "CreateDate",
+                    "calendar_interval": interval,
+                    "format": "yyyy-MM-dd",
+                },
+                "aggs": {
+                    "resolved": {"filter": {"term": {"StatusId": 5}}},
+                    "critical": {"filter": {"term": {"PiorityId": 1}}},
+                },
+            }
+        },
+    }
+
+    res = es.search(index=INDEX_NAME, body=body)
+
+    return {
+    "interval": interval,
+    "data": [
+        {
+            "date": b["key_as_string"],
+            "incidents": b["doc_count"],
+            "resolved": b["resolved"]["doc_count"],
+            "critical": b["critical"]["doc_count"],
+        }
+        for b in res["aggregations"]["by_date"]["buckets"]
+    ],
+}
