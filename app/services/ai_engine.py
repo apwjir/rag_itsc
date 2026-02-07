@@ -1,14 +1,15 @@
 # app/services/ai_engine.py
 
+from langchain_openai import OpenAIEmbeddings
 import json
 import os
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from app.services.models import get_model, ModelProvider, find_model_by_display_name
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
-# โหลดตัวแปรจาก .env
 load_dotenv()
+VECTOR_DIMS = int(os.getenv("VECTOR_DIMS"))
 
 class AIEngineError(Exception):
     def __init__(self, code: str, message: str, provider_message: str = ""):
@@ -24,11 +25,11 @@ class AIEngine:
         self.qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
         self.collection_name = os.getenv("COLLECTION_NAME", "mitre-attack-vectors")
 
-        # Support both keys but prefer GOOGLE_API_KEY for consistency
-        self.google_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        # Embedding API Key
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
 
         # ชื่อโมเดล Embedding (ต้องตรงกับตอน Ingest)
-        self.embedding_model_name = "models/text-embedding-004"
+        self.embedding_model_name = "text-embedding-3-large"
 
         # Default generation model
         self.generation_model_name = "openai/gpt-oss-120b"
@@ -85,11 +86,11 @@ class AIEngine:
         """โหลด Qdrant Client และ Config Gemini"""
         print("--- 🤖 Connecting to AI Services... ---")
 
-        if not self.google_api_key:
+        if not self.openai_api_key:
             raise AIEngineError(
                 code="EXPIRED_API_KEY",
-                message="GOOGLE_API_KEY / GEMINI_API_KEY not found in .env",
-                provider_message="Missing GOOGLE_API_KEY/GEMINI_API_KEY",
+                message="OPENAI_API_KEY not found in .env",
+                provider_message="Missing OPENAI_API_KEY",
             )
 
         # 1) Initialize LangChain Chat Model
@@ -100,10 +101,10 @@ class AIEngine:
         )
 
         # 2) Initialize LangChain Embeddings
-        self.embeddings = GoogleGenerativeAIEmbeddings(
+        self.embeddings = OpenAIEmbeddings(
             model=self.embedding_model_name,
-            google_api_key=self.google_api_key,
-            task_type="retrieval_query",
+            openai_api_key=self.openai_api_key,
+            dimensions=VECTOR_DIMS
         )
 
         # 3) Connect Qdrant

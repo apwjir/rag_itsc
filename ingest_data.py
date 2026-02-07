@@ -7,8 +7,7 @@ from qdrant_client.http.models import Distance, VectorParams, PointStruct
 from tqdm import tqdm
 import warnings
 import uuid
-# REMOVED: import google.generativeai as genai
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 warnings.filterwarnings("ignore", module="stix2.properties")
 
@@ -17,18 +16,16 @@ STIX_FILE_PATH = os.getenv("STIX_FILE_PATH")
 QDRANT_HOST = os.getenv("QDRANT_HOST")
 QDRANT_PORT = os.getenv("QDRANT_PORT")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
-VECTOR_DIMS = int(os.getenv("VECTOR_DIMS", "768")) # text-embedding-004 ปกติคือ 768 dims (เช็คดีๆนะครับ ถ้า 004 ใช้ 768)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+VECTOR_DIMS = int(os.getenv("VECTOR_DIMS"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# ใช้ text-embedding-004
-EMBEDDING_MODEL_NAME = "models/text-embedding-004"
 
-# Initialize LangChain Embeddings
-# task_type="retrieval_document" might be relevant for ingestion side
-embeddings = GoogleGenerativeAIEmbeddings(
+EMBEDDING_MODEL_NAME = "text-embedding-3-large"
+
+embeddings = OpenAIEmbeddings(
     model=EMBEDDING_MODEL_NAME,
-    google_api_key=GEMINI_API_KEY,
-    task_type="retrieval_document" 
+    api_key=OPENAI_API_KEY,
+    dimensions=VECTOR_DIMS
 )
 
 # -------------------------------
@@ -135,7 +132,7 @@ def main():
 
     # Process in Batches (Embedding + Upsert)
     # Batch size สำหรับ Embedding API (Google รับได้ประมาณ 100 ต่อ call กำลังดี)
-    EMBED_BATCH_SIZE = 50 
+    EMBED_BATCH_SIZE = 50
     
     print(f"Starting Ingestion in batches of {EMBED_BATCH_SIZE}...")
     
