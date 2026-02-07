@@ -98,6 +98,17 @@ services:
       - esnet
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - esnet
+
 networks:
   esnet:
     driver: bridge
@@ -112,4 +123,6 @@ volumes:
   qdrant-storage:
     driver: local
   db_data:
+    driver: local
+  ollama-data:
     driver: local
