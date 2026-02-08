@@ -38,9 +38,9 @@ def normalize_date(
             dt = datetime.strptime(value, fmt)
 
             if end_of_day:
-                dt = dt.replace(hour=23, minute=59, second=59)
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
             else:
-                dt = dt.replace(hour=0, minute=0, second=0)
+                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
             return dt.replace(tzinfo=timezone.utc).isoformat()
         except ValueError:
