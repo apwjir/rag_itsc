@@ -163,6 +163,11 @@ async def incident_trends(
                     "field": "CreateDate",
                     "calendar_interval": interval,
                     "format": "yyyy-MM-dd",
+                    "min_doc_count": 0,
+                    "extended_bounds": {
+                        "min": from_date,
+                        "max": to_date,
+                    },
                 },
                 "aggs": {
                     "resolved": {"filter": {"term": {"StatusId": 5}}},
