@@ -400,25 +400,50 @@ async def get_unanalysis_logs(
 async def get_analyzed_logs(
     limit: int = Query(50, le=200),
     search_after: Optional[str] = None,
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    priority: Optional[List[str]] = Query(None),
+    priority_id: Optional[List[int]] = Query(None),
+    category: Optional[List[str]] = Query(None),
+    incident_id: Optional[str] = Query(None),
     user: str = Depends(get_current_user)
 ):
+    filters = [{"exists": {"field": "ai_generated_at"}}]
+    must_not = [{"exists": {"field": "soc_action.selected_method_id"}}]
+
+    if date_from or date_to:
+        r = {}
+        if date_from:
+            r["gte"] = normalize_date(date_from)
+        if date_to:
+            r["lte"] = normalize_date(date_to, end_of_day=True)
+        filters.append({"range": {"CreateDate": r}})
+
+    if priority_id or priority:
+        should = []
+        if priority_id:
+            should.append({"terms": {"PiorityId": priority_id}})
+        if priority:
+            for p in priority:
+                s = str(p).strip()
+                should.append({"prefix": {"PiorityEN.keyword": s}})
+        filters.append({"bool": {"should": should, "minimum_should_match": 1}})
+
+    if category:
+        filters.append({"terms": {"CategoryEN.keyword": category}})
+
+    if incident_id:
+        s = str(incident_id).strip()
+        if s.isdigit():
+            filters.append({"term": {"IncidentsId": int(s)}})
+        else:
+            filters.append({"term": {"IncidentsId.keyword": s}})
+
     body = {
-        "query": {
-            "bool": {
-                "must": [
-                    { "exists": { "field": "ai_generated_at" } }
-                ],
-                "must_not": [
-                    { "exists": { "field": "soc_action.selected_method_id" } }
-                ]
-            }
-        },
+        "query": {"bool": {"filter": filters, "must_not": must_not}},
         "size": limit,
         "track_total_hits": False,
-        "sort": [
-            {"IncidentsId": "desc"},
-            {"_id": "desc"}
-        ]
+        "sort": [{"IncidentsId": "desc"}, {"_id": "desc"}],
     }
 
     if search_after:
