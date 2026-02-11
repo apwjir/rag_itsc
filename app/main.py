@@ -183,10 +183,39 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
         df = pd.read_csv(io.BytesIO(contents))
 
         df = df.where(pd.notnull(df), None)
-        
+
+        # --- Check for existing IncidentsId in Elasticsearch ---
+        if "IncidentsId" not in df.columns:
+            raise HTTPException(
+                status_code=400,
+                detail="CSV must contain an 'IncidentsId' column for duplicate checking."
+            )
+
+        incoming_ids = df["IncidentsId"].dropna().unique().tolist()
+
+        existing_ids: set = set()
+        if incoming_ids:
+            # Query ES in batches of 1000, using scan to guarantee all matches are returned
+            for i in range(0, len(incoming_ids), 1000):
+                batch = incoming_ids[i:i + 1000]
+                for hit in helpers.scan(
+                    es,
+                    index="cmu-incidents-fastapi",
+                    query={"query": {"terms": {"IncidentsId": batch}}},
+                    _source=["IncidentsId"],
+                ):
+                    existing_ids.add(hit["_source"].get("IncidentsId"))
+
+        skipped_count = 0
         actions = []
         for _, row in df.iterrows():
             doc = row.to_dict()
+
+            # Skip if this IncidentsId already exists in ES
+            incident_id = doc.get("IncidentsId")
+            if incident_id in existing_ids:
+                skipped_count += 1
+                continue
             
             generated_uid = str(uuid.uuid4())
 
@@ -214,13 +243,20 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
         if not es.ping():
              raise Exception("Cannot connect to Elasticsearch at localhost:9200")
 
-        success, failed = helpers.bulk(es, actions)
+        success = 0
+        if actions:
+            success, failed = helpers.bulk(
+                es, actions,
+                chunk_size=2000,
+                raise_on_error=False,
+            )
         
         return {
             "status": "success",
-            "total_rows_processed": len(df), # จำนวนแถวที่เหลือหลังจากการกรอง
+            "total_rows_in_file": len(df),
             "inserted_count": success,
-            "note": "Imported successfully (Filtered out 'Admin Information Sharing')"
+            "skipped_duplicates": skipped_count,
+            "note": f"Imported successfully. {skipped_count} duplicate(s) skipped by IncidentsId."
         }
 
     except Exception as e:
