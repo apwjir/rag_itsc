@@ -174,13 +174,33 @@ app.include_router(users_router)
 
 # --- Route Upload ---
 @app.post("/upload-log/")
-async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_current_user)):
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail="ขอเป็นไฟล์ CSV เท่านั้นครับ")
+async def upload_log(file: UploadFile = File(...), user: str = Depends(get_current_user)):
+    filename = file.filename.lower()
+
+    if not (filename.endswith('.csv') or filename.endswith('.xlsx')):
+        raise HTTPException(status_code=400, detail="Only .csv (UTF-8) and .xlsx files are supported.")
 
     try:
         contents = await file.read()
-        df = pd.read_csv(io.BytesIO(contents))
+
+        if filename.endswith(".csv"):
+            try:
+                # Always try UTF-8 first (policy)
+                df = pd.read_csv(io.BytesIO(contents), encoding="utf-8-sig")
+            except UnicodeDecodeError:
+                import chardet
+                detected = chardet.detect(contents)
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"CSV encoding '{detected.get('encoding')}' is not supported. "
+                        "Please save the file as UTF-8 (CSV UTF-8) or upload an XLSX file."
+                    ),
+                )
+
+        else:  # .xlsx
+            df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
+
 
         df = df.where(pd.notnull(df), None)
 
