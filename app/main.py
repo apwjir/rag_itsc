@@ -226,9 +226,13 @@ async def upload_log_csv(file: UploadFile = File(...), user: str = Depends(get_c
                     doc.get("CreateDate"),
                     allow_now_if_missing=False,
                 )
-            except Exception as e:
-                print(f"CreateDate normalize failed: {doc.get('CreateDate')} → {e}")
-                doc["CreateDate"] = None
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid CreateDate format at row {_ + 2}: '{doc.get('CreateDate')}'. "
+                           f"Supported formats: YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, "
+                           f"YYYY-MM-DDTHH:MM:SS+00:00, MM/DD/YYYY."
+                )
             
             doc['ai_analysis'] = None
             doc["ai_status"] = "pending"

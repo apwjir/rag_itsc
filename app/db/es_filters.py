@@ -2,6 +2,8 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone , date
 
 DATE_FORMATS = [
+    "%Y-%m-%dT%H:%M:%S%z",   # ISO 8601 with timezone
+    "%Y-%m-%dT%H:%M:%S",     # ISO 8601 without timezone
     "%Y-%m-%d",
     "%Y-%m-%d %H:%M:%S",
     "%m/%d/%Y",
@@ -45,6 +47,17 @@ def normalize_date(
             return dt.replace(tzinfo=timezone.utc).isoformat()
         except ValueError:
             continue
+
+    # Fallback: try fromisoformat for edge cases
+    try:
+        dt = datetime.fromisoformat(value)
+        if end_of_day:
+            dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:
+            dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+    except ValueError:
+        pass
 
     raise ValueError(f"Unsupported date format: {value}")
 
