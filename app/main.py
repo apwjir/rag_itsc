@@ -399,6 +399,7 @@ PRIORITY_MAP = {
 async def get_unanalysis_logs(
     limit: int = Query(50, ge=1, le=50),
     search_after: Optional[str] = None,
+    search: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     priority: Optional[List[str]] = Query(None),
@@ -408,7 +409,17 @@ async def get_unanalysis_logs(
     user: str = Depends(get_current_user),
 ):
     filters = []
+    must = []
     must_not = [{"exists": {"field": "ai_generated_at"}}]
+
+    if search and search.strip():
+        must.append({
+            "multi_match": {
+                "query": search.strip(),
+                "fields": ["IncidentSubject", "IncidentMessage"],
+                "fuzziness": "AUTO",
+            }
+        })
 
     if date_from or date_to:
         r = {}
@@ -440,7 +451,7 @@ async def get_unanalysis_logs(
             filters.append({"term": {"IncidentsId.keyword": s}})
 
     body = {
-        "query": {"bool": {"filter": filters, "must_not": must_not}},
+        "query": {"bool": {"must": must, "filter": filters, "must_not": must_not}},
         "size": limit,
         "track_total_hits": False,
         "sort": [{"IncidentsId": "desc"}, {"_id": "desc"}],
@@ -460,6 +471,7 @@ async def get_unanalysis_logs(
 async def get_analyzed_logs(
     limit: int = Query(50, le=200),
     search_after: Optional[str] = None,
+    search: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     priority: Optional[List[str]] = Query(None),
@@ -469,7 +481,17 @@ async def get_analyzed_logs(
     user: str = Depends(get_current_user)
 ):
     filters = [{"exists": {"field": "ai_generated_at"}}]
+    must = []
     must_not = [{"exists": {"field": "soc_action.selected_method_id"}}]
+
+    if search and search.strip():
+        must.append({
+            "multi_match": {
+                "query": search.strip(),
+                "fields": ["IncidentSubject", "IncidentMessage"],
+                "fuzziness": "AUTO",
+            }
+        })
 
     if date_from or date_to:
         r = {}
@@ -500,7 +522,7 @@ async def get_analyzed_logs(
             filters.append({"term": {"IncidentsId.keyword": s}})
 
     body = {
-        "query": {"bool": {"filter": filters, "must_not": must_not}},
+        "query": {"bool": {"must": must, "filter": filters, "must_not": must_not}},
         "size": limit,
         "track_total_hits": False,
         "sort": [{"IncidentsId": "desc"}, {"_id": "desc"}],
