@@ -64,7 +64,7 @@ async def get_logs_with_update_date(
         hits = res["hits"]["hits"]
         total = res["hits"]["total"]["value"]
 
-        data = [h["_source"] for h in hits]
+        data = [{"id": h["_id"], **h["_source"]} for h in hits]
         next_cursor = "|".join(hits[-1]["sort"]) if hits else None
 
         return {
