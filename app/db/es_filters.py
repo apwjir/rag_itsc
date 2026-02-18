@@ -1,11 +1,14 @@
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone , date
+from datetime import datetime, timezone, date, timedelta
+
+BANGKOK_TZ = timezone(timedelta(hours=7))
 
 DATE_FORMATS = [
     "%Y-%m-%dT%H:%M:%S%z",   # ISO 8601 with timezone
     "%Y-%m-%dT%H:%M:%S",     # ISO 8601 without timezone
-    "%Y-%m-%d",
+    "%Y-%m-%d %H:%M:%S%z",   # Space separator with timezone (pandas XLSX)
     "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
     "%m/%d/%Y",
     "%m/%d/%Y %H:%M:%S",
 ]
@@ -27,6 +30,7 @@ def normalize_date(
     *,
     end_of_day: bool = False,
     allow_now_if_missing: bool = False, 
+    keep_time: bool = True,
 ) -> Optional[str]:
     if not value:
         if allow_now_if_missing:
@@ -39,23 +43,35 @@ def normalize_date(
         try:
             dt = datetime.strptime(value, fmt)
 
-            if end_of_day:
+            has_time_info = "%H" in fmt or "%I" in fmt
+            
+            if has_time_info and keep_time:
+                pass
+            elif end_of_day:
                 dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
             else:
                 dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
-            return dt.replace(tzinfo=timezone.utc).isoformat()
+            # If naive (no timezone), assume Bangkok (+07:00)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=BANGKOK_TZ)
+            return dt.astimezone(BANGKOK_TZ).isoformat()
         except ValueError:
             continue
 
     # Fallback: try fromisoformat for edge cases
     try:
         dt = datetime.fromisoformat(value)
-        if end_of_day:
+        if keep_time:
+            pass  # preserve original time
+        elif end_of_day:
             dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
         else:
             dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        return dt.replace(tzinfo=timezone.utc).isoformat()
+        
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=BANGKOK_TZ)
+        return dt.astimezone(BANGKOK_TZ).isoformat()
     except ValueError:
         pass
 

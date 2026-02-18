@@ -1,13 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware 
 from elasticsearch import Elasticsearch, helpers
-from contextlib import asynccontextmanager # ต้องใช้ตัวนี้สำหรับ Lifespan
+from contextlib import asynccontextmanager
 import pandas as pd
 import io
 import numpy as np
 import uuid
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any 
 from pydantic import BaseModel
 from app.services.ai_engine import ai_engine_instance,AIEngineError
@@ -20,6 +20,7 @@ from app.db.es_client import es, INDEX_NAME
 from app.api.dashboard import router as dashboard_router
 from app.api.users import router as users_router
 from app.db.es_filters import normalize_date
+from app.api.summary import router as summary_router
 
 from app.services.auto_worker import run_auto_worker
 from threading import Thread, Event
@@ -172,6 +173,9 @@ app.include_router(dashboard_router)
 # --- Include Users Router ---
 app.include_router(users_router)
 
+# --- Include Summary Router ---
+app.include_router(summary_router)
+
 # --- Route Upload ---
 @app.post("/upload-log/")
 async def upload_log(file: UploadFile = File(...), user: str = Depends(get_current_user)):
@@ -239,7 +243,7 @@ async def upload_log(file: UploadFile = File(...), user: str = Depends(get_curre
             
             generated_uid = str(uuid.uuid4())
 
-            doc["ingested_at"] = datetime.now(timezone.utc).isoformat()
+            doc["ingested_at"] = datetime.now(timezone(timedelta(hours=7))).replace(microsecond=0).isoformat()
             
             try:
                 doc["CreateDate"] = normalize_date(
@@ -253,6 +257,15 @@ async def upload_log(file: UploadFile = File(...), user: str = Depends(get_curre
                            f"Supported formats: YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, "
                            f"YYYY-MM-DDTHH:MM:SS+00:00, MM/DD/YYYY."
                 )
+            
+            try:
+                doc["UpdateDate"] = normalize_date(
+                    doc.get("UpdateDate"),
+                    allow_now_if_missing=False,
+                )
+            except Exception as e:
+                print(f"UpdateDate normalize failed: {doc.get('UpdateDate')} → {e}")
+                doc["UpdateDate"] = None
             
             doc['ai_analysis'] = None
             doc["ai_status"] = "pending"
@@ -410,7 +423,10 @@ async def get_unanalysis_logs(
 ):
     filters = []
     must = []
-    must_not = [{"exists": {"field": "ai_generated_at"}}]
+    must_not = [
+        {"exists": {"field": "ai_generated_at"}},
+        {"term": {"PiorityId": 6}},
+    ]
 
     if search and search.strip():
         must.append({
@@ -482,7 +498,7 @@ async def get_analyzed_logs(
 ):
     filters = [{"exists": {"field": "ai_generated_at"}}]
     must = []
-    must_not = [{"exists": {"field": "soc_action.selected_method_id"}}]
+    must_not = [{"exists": {"field": "soc_action.selected_method_id"}},{"term": {"PiorityId": 6}}]
 
     if search and search.strip():
         must.append({
@@ -579,7 +595,8 @@ async def summary_analysis(user: str = Depends(get_current_user)):
                         { "exists": { "field": "ai_generated_at" } }
                     ],
                     "must_not": [
-                        { "exists": { "field": "soc_action.selected_method_id" } }
+                        { "exists": { "field": "soc_action.selected_method_id" } },
+                        { "term": {"PiorityId": 6} }
                     ]
                 }
             }
@@ -598,7 +615,8 @@ async def summary_unanalysis(user: str = Depends(get_current_user)):
             "query": {
                 "bool": {
                     "must_not": [
-                        { "exists": { "field": "ai_generated_at" } }
+                        { "exists": { "field": "ai_generated_at" } },
+                        { "term": {"PiorityId": 6} }
                     ]
                 }
             }
