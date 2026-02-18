@@ -53,11 +53,11 @@ async def get_logs_with_update_date(
     body = {
         "size": limit,
         "query": {"bool": {"filter": filters}},
-        "sort": [{"UpdateDate.keyword": "desc"}, {"_id": "asc"}]
+        "sort": [{"IncidentsId": "desc"}, {"_id": "desc"}]
     }
 
     if search_after:
-        body["search_after"] = search_after.split("|")
+        body["search_after"] = json.loads(search_after)
 
     try:
         res = es.search(index=INDEX_NAME, body=body)
@@ -65,7 +65,7 @@ async def get_logs_with_update_date(
         total = res["hits"]["total"]["value"]
 
         data = [{"id": h["_id"], **h["_source"]} for h in hits]
-        next_cursor = "|".join(hits[-1]["sort"]) if hits else None
+        next_cursor = json.dumps(hits[-1]["sort"]) if hits else None
 
         return {
             "status": "success",
