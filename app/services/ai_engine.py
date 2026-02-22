@@ -188,41 +188,41 @@ class AIEngine:
 
     def generate_mitigation_json(self, query_text: str, context_text: str):
             prompt = f"""
-        คุณเป็นผู้เชี่ยวชาญด้าน Cybersecurity (SOC / Incident Response Analyst)
+        You are a Cybersecurity Expert (SOC / Incident Response Analyst).
 
-        หน้าที่ของคุณคือ:
-        เสนอ "ตัวเลือกการรับมือ" ที่ทีม SOC สามารถเลือกไปใช้งานจริงได้
-        ไม่จำเป็นต้องดีที่สุดทุกวิธี แต่ต้อง "ทำได้จริง" และ "เลือกได้"
+        Your task is to:
+        Propose "mitigation options" that a SOC team can practically implement in real life.
+        They do not need to be the absolute best methods, but they must be "actionable" and "selectable."
 
-        ข้อกำหนดสำคัญ:
-        - ตอบเป็น JSON เท่านั้น
-        - ห้ามใช้ Markdown หรือ ```json
-        - ห้ามใส่คำว่า Result, Reference, Source หรือหมายเลขอ้างอิงใด ๆ
+        Important Constraints:
+        - **All generated content inside the JSON values MUST be in Thai language.**
+        - Output strictly in JSON format only.
+        - Do NOT use Markdown formatting or ```json block tags.
+        - Do NOT include words like Result, Reference, Source, or any citation/reference numbers.
 
-        Context ข้อมูลภัยคุกคาม:
+        Threat Context:
         {context_text}
 
         Incident:
         "{query_text}"
 
-        คำสั่ง:
-        สร้าง Mitigation Plan จำนวน 3 วิธี
-        โดยแต่ละวิธีต้อง "แตกต่างกันชัดเจน" และอยู่คนละแนวทางดังนี้เท่านั้น:
-        1) Containment — ลดผลกระทบในทันที (quick win / stop the bleeding)
-        2) Eradication & Recovery — แก้ root cause และกู้ระบบกลับสู่สภาพปกติ
-        3) Prevention / Hardening — ป้องกันไม่ให้เหตุการณ์ลักษณะนี้เกิดซ้ำ
-        ห้ามสร้างวิธีที่ซ้ำแนวคิดกัน
+        Instructions:
+        Create a Mitigation Plan consisting of exactly 3 methods.
+        Each method must be "clearly distinct" and fall strictly into one of the following approaches (do not mix concepts):
+        1) Containment — Immediate impact reduction (quick win / stop the bleeding).
+        2) Eradication & Recovery — Fix the root cause and restore the system to a normal state.
+        3) Prevention / Hardening — Prevent similar incidents from occurring in the future.
 
-        ข้อกำหนดโครงสร้างแต่ละวิธี:
-        1) action: ชื่อสั้น กระชับ สื่อชัดว่า SOC จะต้องทำอะไร (ภาษาไทย)
-        2) detail: ต้องมีอย่างน้อย 3 ขั้น (Step 1/2/3) และทำตามได้จริง
-        3) reason:
-        - ต้องเป็นข้อความเดียว (ห้ามแยกหัวข้อ)
-        - 3–5 ประโยค
-        - ต้องมี 3 ส่วนต่อเนื่องกัน: Threat/Impact → Evidence (อย่างน้อย 2 fact จาก context) → Expected Outcome
-        - ห้ามเขียนว่า Result/Reference/Source/หมายเลข
+        Structure Requirements for Each Method:
+        1) action: A short, concise title indicating exactly what the SOC needs to do (in Thai).
+        2) detail: Must contain at least 3 actionable steps (e.g., Step 1 / Step 2 / Step 3) (in Thai).
+        3) reason: (in Thai)
+           - Must be a single continuous paragraph (no separate bullet points or headings).
+           - Exactly 3–5 sentences long.
+           - Must logically connect 3 continuous parts: Threat/Impact -> Evidence (using at least 2 facts from the context) -> Expected Outcome.
+           - Do NOT write words like Result/Reference/Source/Number.
 
-        Output Format (ต้องตรงนี้เท่านั้น):
+        Output Format (Strictly follow this structure):
         [
         {{
             "method_id": 1,
