@@ -896,3 +896,76 @@ async def ai_health(user: str = Depends(get_current_user)):
         return {"status": "ok"}
     except Exception as e:
         raise map_ai_engine_error(e)
+
+# --- Generate Cybersecurity Threat Intelligence Suggestion ---
+@app.post("/generate-suggestion/")
+async def generate_suggestion(user: str = Depends(get_current_user)):
+    """
+    Fetch logs from the past 1 year, send to LLM for cybersecurity
+    threat intelligence analysis (stateless — does not store result).
+    """
+    print("⚡ Request received: Generate Threat Suggestion")
+
+    # 1. Query ES for logs from the past 1 year
+    try:
+        one_year_ago = (datetime.now() - timedelta(days=365)).isoformat()
+
+        body = {
+            "size": 100,
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"range": {"CreateDate": {"gte": one_year_ago}}},
+                    ]
+                }
+            },
+            "sort": [{"CreateDate": "desc"}],
+            "_source": [
+                "IncidentsId", "CategoryEN", "PiorityEN",
+                "IncidentSubject", "IncidentMessage", "CreateDate",
+            ],
+        }
+
+        res = es.search(index=INDEX_NAME, body=body)
+        hits = res["hits"]["hits"]
+
+        if not hits:
+            raise HTTPException(
+                status_code=404,
+                detail="No logs found within the past 1 year.",
+            )
+
+        # 2. Format logs for LLM consumption
+        log_lines = []
+        for h in hits:
+            s = h["_source"]
+            log_lines.append(
+                f"[{s.get('CreateDate', 'N/A')}] "
+                f"Priority={s.get('PiorityEN', 'N/A')} | "
+                f"Category={s.get('CategoryEN', 'N/A')} | "
+                f"Subject={s.get('IncidentSubject', '')} | "
+                f"Message={str(s.get('IncidentMessage', ''))[:300]}"
+            )
+
+        log_text = "\n".join(log_lines)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to query logs: {str(e)}",
+        )
+
+    # 3. Call AI Engine
+    try:
+        suggestion = ai_engine_instance.generate_suggestion(log_text)
+
+        return {
+            "status": "success",
+            "logs_analyzed": len(hits),
+            "suggestion": suggestion,
+        }
+
+    except Exception as e:
+        raise map_ai_engine_error(e)

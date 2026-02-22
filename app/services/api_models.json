@@ -38,5 +38,10 @@
     "display_name": "Llama 4 Scout 17B Instruct",
     "model_name": "meta-llama/llama-4-scout-17b-16e-instruct",
     "provider": "Groq"
+  },
+  {
+    "display_name": "GPT OSS 120B Ollama",
+    "model_name": "gpt-oss:120b-cloud",
+    "provider": "Ollama"
   }
 ]

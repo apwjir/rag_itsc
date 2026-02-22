@@ -275,6 +275,51 @@ class AIEngine:
                 )
 
 
+    def generate_suggestion(self, log_text: str) -> str:
+        """Generate cybersecurity threat intelligence suggestion from log data."""
+        system_prompt = """You are a Cybersecurity Advisor reporting to executives. Analyze the provided security logs and deliver a concise executive briefing covering these 3 areas:
+
+1. สาเหตุและสถานการณ์ปัจจุบัน (Root Cause & Current Situation):
+   - Explain what is happening in business terms, why it matters, and the current risk level.
+
+2. ภัยคุกคามที่ควรเฝ้าระวังในอนาคต (Future Threat Prediction):
+   - Based on the log patterns, predict specific incidents or attacks that are likely to occur in the future.
+
+3. คำแนะนำเชิงปฏิบัติ (Recommended Actions):
+   - What should the organization do for prevent attack that likely to occur in the future base on prediction in 2. Provide clear, prioritized next steps.
+
+Output Rules:
+- Answer in Thai language only.
+- Write for executives: focus on business impact, avoid deep technical jargon.
+- No markdown formatting, no code blocks, no bullet points, no headers.
+- Output exactly 3 numbered paragraphs: 1. ... 2. ... 3. ...
+- Each paragraph should be concise (2 sentences), suitable for an executive summary report."""
+
+        prompt = f"""{system_prompt}
+
+--- LOGS ---
+{log_text}
+--- END LOGS ---
+
+Provide your analysis now.""".strip()
+
+        try:
+            if not self.llm:
+                self.init_models()
+
+            response = self.llm.invoke(prompt)
+            return response.content.strip()
+
+        except AIEngineError:
+            raise
+        except Exception as e:
+            self._raise_if_key_or_rate_error(e)
+            raise AIEngineError(
+                code="AI_PROCESSING_ERROR",
+                message="AI suggestion generation failed.",
+                provider_message=str(e),
+            )
+
     def analyze_incident(self, cat: str, subj: str, msg: str):
         """ฟังก์ชันหลักที่ API จะเรียกใช้"""
         query = f"Category: {cat} | Subject: {subj} | Detail: {msg}"

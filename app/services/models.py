@@ -3,6 +3,7 @@ import json
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from enum import Enum
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ class ModelProvider(str, Enum):
     GOOGLE = "Google"
     GROQ = "Groq"
     META = "Meta"
+    OLLAMA = "Ollama"
     OPENAI = "OpenAI"
 
 
@@ -150,3 +152,6 @@ def get_model(model_name: str, model_provider: ModelProvider, api_keys: dict = N
             print(f"API Key Error: Please make sure GOOGLE_API_KEY is set in your .env file or provided via API keys.")
             raise ValueError("Google API key not found.  Please make sure GOOGLE_API_KEY is set in your .env file or provided via API keys.")
         return ChatGoogleGenerativeAI(model=model_name, api_key=api_key)
+    elif model_provider == ModelProvider.OLLAMA:
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        return ChatOllama(model=model_name, base_url=base_url)
