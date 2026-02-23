@@ -249,7 +249,7 @@ class AIEngine:
                 if not self.llm:
                     self.init_models()
 
-                print(self.llm.model_name)
+                print(getattr(self.llm, 'model_name', None) or getattr(self.llm, 'model', 'unknown'))
                 response = self.llm.invoke(prompt)
                 text_resp = response.content.strip()
                 text_resp = text_resp.replace("```json", "").replace("```", "").strip()

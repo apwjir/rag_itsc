@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timedelta
 import json
+import traceback
 
 from app.core.deps import get_current_user
 from app.services.ai_engine import ai_engine_instance, AIEngineError
@@ -96,7 +97,11 @@ async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
 
         es.update(index=INDEX_NAME, id=uid, body={"doc": {"ai_status": "processing"}})
         
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"ES Error: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Elasticsearch Error: {str(e)}")
 
     # 2. เรียกใช้ AI Engine (RAG)
@@ -116,7 +121,11 @@ async def generate_ai_analysis(uid: str, user: str = Depends(get_current_user)):
                     "provider_message": str(ai_result),
                 },
             )
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"AI Engine Error: {e}")
+        traceback.print_exc()
         es.update(
             index=INDEX_NAME,
             id=uid,
