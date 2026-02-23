@@ -32,8 +32,11 @@ async def select_soc_action(
     if not es.exists(index=INDEX_NAME, id=uid):
         raise HTTPException(status_code=404, detail="Log not found")
 
-    if body.rating is not None and not (1 <= body.rating <= 5):
-        raise HTTPException(status_code=400, detail="Rating must be 1-5")
+    if body.rating is None:
+        raise HTTPException(status_code=400, detail="Please enter a rating")
+
+    if not (1 <= body.rating <= 5):
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
 
     soc_action_doc = {
         "selected_method_id": body.selected_method_id,
