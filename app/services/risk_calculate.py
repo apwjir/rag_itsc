@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from app.db.es_client import es, INDEX_NAME
 from langchain.tools import tool
 
@@ -5,8 +7,18 @@ from langchain.tools import tool
 async def calculate_top_weighted_risks(limit: int = None):
     es_size = limit if limit is not None else 1000 
 
+    # Only consider logs from the past 1 year (matches AI suggestion scope)
+    one_year_ago = (datetime.now() - timedelta(days=365)).isoformat()
+
     body = {
         "size": 0,
+        "query": {
+            "bool": {
+                "filter": [
+                    {"range": {"CreateDate": {"gte": one_year_ago}}}
+                ]
+            }
+        },
         "aggs": {
             "categories": {
                 "terms": {
