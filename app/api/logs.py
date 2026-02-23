@@ -601,19 +601,58 @@ async def dashboard_summary(user: str = Depends(get_current_user)):
             "query": {
                 "bool": {
                     "must_not": [
-                        { "exists": { "field": "ai_generated_at" } }
+                        { "exists": { "field": "ai_generated_at" } },
+                        {"term": {"PiorityId": 6}},
                     ]
                 }
             }
         }
     )["count"]
 
-    resolved = es.count(
+    in_progress = es.count(
         index=INDEX_NAME,
         body={
             "query": {
-                "exists": {
-                    "field": "soc_action.selected_method_id"
+                "bool": {
+                    "must": [
+                        { "exists": { "field": "ai_generated_at" } } 
+                    ],
+                    "must_not": [
+                        { "exists": { "field": "soc_action.selected_at" } }
+                    ]
+                }
+            }
+        }
+    )["count"]
+
+    tz = timezone(timedelta(hours=7))
+    today_date = datetime.now(tz).date().isoformat() 
+    
+    start_of_day = f"{today_date}T00:00:00"
+    end_of_day = f"{today_date}T23:59:59"
+
+    resolved_today = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "bool": {
+                    "must": [
+                        { "exists": { "field": "soc_action.selected_at" } },
+                        { "range": { "soc_action.selected_at": { "gte": start_of_day, "lte": end_of_day } } } 
+                    ]
+                }
+            }
+        }
+    )["count"]
+    resolved_today = es.count(
+        index=INDEX_NAME,
+        body={
+            "query": {
+                "bool": {
+                    "must": [
+                        { "exists": { "field": "soc_action.selected_at" } }, 
+                        { "range": { "soc_action.selected_at": { "gte": start_of_day, "lte": end_of_day } } } 
+                    ]
                 }
             }
         }
@@ -624,13 +663,11 @@ async def dashboard_summary(user: str = Depends(get_current_user)):
         body={
             "query": {
                 "match_phrase": {
-                    "PiorityEN": "High"
+                    "PiorityEN": "Critical"
                 }
             }
         }
     )["count"]
-
-    today = datetime.utcnow().date().isoformat()
 
     new_today = es.count(
         index=INDEX_NAME,
@@ -638,22 +675,22 @@ async def dashboard_summary(user: str = Depends(get_current_user)):
             "query": {
                 "range": {
                     "ingested_at": {
-                        "gte": today,
-                        "lte": "now"
+                        "gte": start_of_day,
+                        "lte": end_of_day
                     }
                 }
             }
         }
     )["count"]
-
+    
     return {
         "totalIncidents": total,
         "pendingAnalysis": pending_analysis,
-        "resolvedCases": resolved,
+        "inProgress": in_progress,
+        "resolvedCases": resolved_today,
         "criticalAlerts": critical,
         "newToday": new_today,
     }
-
 
 # --- Route Get by TicketId ---
 @router.get("/log/ticket/{ticket_id}")
