@@ -16,40 +16,20 @@ async def get_logs_with_update_date(
     search_after: Optional[str] = None,
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    priority: Optional[List[str]] = Query(None),
-    incident_id: Optional[str] = Query(None),
-    category: Optional[List[str]] = Query(None),
     user: str = Depends(get_current_user)
 ):
-    # 2. สร้างรายการ Filter
     filters = [
         {"exists": {"field": "UpdateDate"}},
         {"exists": {"field": "CreateDate"}},
         {"bool": {"must_not": [{"terms": {"PiorityEN.keyword": ["INFORMATION", "Information", "information"]}}]}}
     ]
 
-    # 3. เพิ่ม Dynamic Filters ตามที่หน้าบ้านส่งมา
     if date_from or date_to:
         r = {}
         if date_from: r["gte"] = date_from
         if date_to: r["lte"] = f"{date_to}T23:59:59"
         filters.append({"range": {"CreateDate": r}})
 
-    if priority:
-        priority_clauses = [{"wildcard": {"PiorityEN.keyword": {"value": f"*{p}*", "case_insensitive": True}}} for p in priority]
-        filters.append({"bool": {"should": priority_clauses, "minimum_should_match": 1}})
-
-    if incident_id:
-        try:
-            filters.append({"term": {"IncidentsId": int(incident_id)}})
-        except ValueError:
-            pass # ถ้าไม่ใช่ตัวเลข ไม่ต้องกรองเพื่อให้ไม่พัง
-        
-    if category:
-        category_clauses = [{"wildcard": {"CategoryEN.keyword": {"value": f"*{c}*", "case_insensitive": True}}} for c in category]
-        filters.append({"bool": {"should": category_clauses, "minimum_should_match": 1}})
-
-    # 4. สร้าง Query Body สำหรับตาราง
     body = {
         "size": limit,
         "query": {"bool": {"filter": filters}},
