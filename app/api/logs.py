@@ -519,10 +519,7 @@ async def get_soc_actioned_logs(
         },
         "size": limit,
         "track_total_hits": False,
-        "sort": [
-            {"soc_action.selected_at": "desc"},
-            {"_id": "desc"}
-        ]
+        "sort": [{"IncidentsId": "desc"}, {"_id": "desc"}],
     }
 
     if search_after:
