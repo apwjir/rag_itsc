@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse
 from elasticsearch import helpers
 import pandas as pd
 import io
@@ -504,7 +505,60 @@ async def summary_soc(user: str = Depends(get_current_user)):
         "avg_rating": round(avg_rating, 2) if avg_rating else None
     }
 
-    
+
+@router.get("/logs/soc-actioned/export-excel")
+async def export_soc_actioned_excel(
+    user: str = Depends(get_current_user),
+):
+    """Export all SOC-actioned logs as an Excel (.xlsx) file."""
+    query = {"query": {"exists": {"field": "soc_action.selected_method_id"}}}
+
+    rows = []
+    for hit in helpers.scan(es, index=INDEX_NAME, query=query, _source=True):
+        src = hit["_source"]
+        soc = src.get("soc_action", {}) or {}
+
+        rows.append({
+            "id": hit["_id"],
+            "IncidentsId": src.get("IncidentsId"),
+            "OrganizationMaskEn": src.get("OrganizationMaskEn"),
+            "CategoryId": src.get("CategoryId"),
+            "CategoryTH": src.get("CategoryTH"),
+            "CategoryEN": src.get("CategoryEN"),
+            "PiorityId": src.get("PiorityId"),
+            "PiorityTH": src.get("PiorityTH"),
+            "PiorityEN": src.get("PiorityEN"),
+            "IncidentSubject": src.get("IncidentSubject"),
+            "IncidentMessage": src.get("IncidentMessage"),
+            "StatusId": src.get("StatusId"),
+            "StatusTH": src.get("StatusTH"),
+            "CreateDate": src.get("CreateDate"),
+            "UpdateDate": src.get("UpdateDate"),
+            "ingested_at": src.get("ingested_at"),
+            "soc_selected_action": soc.get("selected_action"),
+            "soc_selected_at": soc.get("selected_at"),
+            "soc_rating": soc.get("rating"),
+            "soc_comment": soc.get("comment"),
+            "soc_selected_by": soc.get("selected_by"),
+        })
+
+    df = pd.DataFrame(rows)
+    df.sort_values(by="IncidentsId", ascending=True, inplace=True, ignore_index=True)
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="SOC Actioned Logs")
+    buf.seek(0)
+
+    filename = f"soc_actioned_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.get("/logs/soc-actioned")
 async def get_soc_actioned_logs(
     limit: int = Query(50, le=200),
