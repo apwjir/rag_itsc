@@ -84,7 +84,7 @@ async def upload_log(file: UploadFile = File(...), user: str = Depends(get_curre
                 batch = incoming_ids[i:i + 1000]
                 for hit in helpers.scan(
                     es,
-                    index="cmu-incidents-fastapi",
+                    index=INDEX_NAME,
                     query={"query": {"terms": {"IncidentsId": batch}}},
                     _source=["IncidentsId"],
                 ):
@@ -132,7 +132,7 @@ async def upload_log(file: UploadFile = File(...), user: str = Depends(get_curre
             doc["ai_generated_at"] = None
 
             actions.append({
-                "_index": "cmu-incidents-fastapi",
+                "_index": INDEX_NAME,
                 "_id": generated_uid, 
                 "_source": doc
             })
@@ -167,7 +167,7 @@ async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate, user: str = De
     อัปเดตข้อมูล AI Analysis (Mitigation Plan & Related Threats) โดยใช้ UID
     """
     try:
-        if not es.exists(index="cmu-incidents-fastapi", id=uid):
+        if not es.exists(index=INDEX_NAME, id=uid):
              raise HTTPException(status_code=404, detail="Log ID not found")
 
         update_body = {
@@ -176,7 +176,7 @@ async def update_ai_analysis(uid: str, ai_data: AIAnalysisUpdate, user: str = De
             }
         }
 
-        es.update(index="cmu-incidents-fastapi", id=uid, body=update_body)
+        es.update(index=INDEX_NAME, id=uid, body=update_body)
 
         return {
             "status": "success",
@@ -321,7 +321,7 @@ async def get_unanalysis_logs(
     if search_after:
         body["search_after"] = json.loads(search_after)
 
-    res = es.search(index="cmu-incidents-fastapi", body=body)
+    res = es.search(index=INDEX_NAME, body=body)
     hits = res["hits"]["hits"]
     items = [{"id": h["_id"], **h["_source"]} for h in hits]
     next_cursor = json.dumps(hits[-1]["sort"]) if hits else None
@@ -703,7 +703,7 @@ async def get_log_by_ticket_id(ticket_id: str, user: str = Depends(get_current_u
         }
     }
     try:
-        res = es.search(index="cmu-incidents-fastapi", body=body)
+        res = es.search(index=INDEX_NAME, body=body)
         hits = res['hits']['hits']
         if len(hits) > 0:
             return hits[0]['_source']
@@ -716,7 +716,7 @@ async def get_log_by_ticket_id(ticket_id: str, user: str = Depends(get_current_u
 @router.get("/log/uid/{uid}")
 async def get_log_by_uid(uid: str, user: str = Depends(get_current_user)):
     try:
-        res = es.get(index="cmu-incidents-fastapi", id=uid)
+        res = es.get(index=INDEX_NAME, id=uid)
         return res['_source']
     except Exception as e:
         raise HTTPException(status_code=404, detail="Log not found")
@@ -725,9 +725,9 @@ async def get_log_by_uid(uid: str, user: str = Depends(get_current_user)):
 @router.delete("/delete-all-logs/")
 async def delete_all_logs(user: str = Depends(get_current_user)):
     try:
-        if es.indices.exists(index="cmu-incidents-fastapi"):
+        if es.indices.exists(index=INDEX_NAME):
             es.delete_by_query(
-                index="cmu-incidents-fastapi", 
+                index=INDEX_NAME, 
                 body={"query": {"match_all": {}}}
             )
         return {"status": "success", "message": "Deleted all logs"}

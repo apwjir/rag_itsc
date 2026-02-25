@@ -6,7 +6,7 @@ from jose import jwt, JWTError
 
 from app.db.session import get_db
 from app.db.models.user import User
-from app.core.security import verify_password, create_access_token
+from app.core.security import verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from app.core.deps import get_current_user 
 
 router = APIRouter()
@@ -42,9 +42,9 @@ def login(
         key="access_token",
         value=token,
         httponly=True,
-        secure=False,        # local only
-        samesite="lax",      # <<< สำคัญ ต้องแก้
-        max_age=60 * 60,
+        secure=False,
+        samesite="lax",     
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
     return {
@@ -76,4 +76,3 @@ def get_me(current_user: User = Depends(get_current_user)):
             "role": current_user.role
         }
     }
-
