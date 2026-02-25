@@ -13,10 +13,18 @@ tqdm
 qdrant-client == 1.6.9
 python-dotenv
 pydantic
+pydantic-settings
 protobuf>=5.26.1,<6.0.0dev
 langchain == 1.2.9
+langchain-community
 langchain-anthropic
-langchain-openai 
-langchain-google-genai 
-langchain-groq 
+langchain-openai
+langchain-google-genai
+langchain-groq
 langchain-ollama
+bcrypt==4.0.1
+passlib
+python-jose[cryptography]
+python-decouple
+psycopg2-binary
+sqlalchemy
