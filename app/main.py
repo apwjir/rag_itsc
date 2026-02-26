@@ -15,6 +15,7 @@ from app.api.users import router as users_router
 from app.api.summary import router as summary_router
 from app.api.logs import router as logs_router
 from app.api.ai import router as ai_router
+from app.api.health import router as health_router
 
 stop_event = Event()
 worker_thread: Thread | None = None
@@ -84,3 +85,4 @@ app.include_router(users_router)
 app.include_router(summary_router)
 app.include_router(logs_router, tags=["Logs"])
 app.include_router(ai_router, tags=["AI"])
+app.include_router(health_router)
