@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware 
 from contextlib import asynccontextmanager
 import qdrant_client
+import os
 
 from app.services.ai_engine import ai_engine_instance
 from app.services.auto_worker import run_auto_worker
@@ -64,9 +65,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 #--- CORS Middleware ---
-origins = [
-    "http://localhost:5173",
-]
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+origins = [origin.strip() for origin in allowed_origins.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
