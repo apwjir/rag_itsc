@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Literal
 from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import get_current_user
+from app.services.risk_calculate import calculate_top_weighted_risks
 from app.db.es_client import es, INDEX_NAME
 from app.db.es_filters import build_organization_filter
 from app.services.risk_calculate import calculate_top_weighted_risks
@@ -154,21 +155,48 @@ async def incident_trends(
     if time_filter:
         filters.append(time_filter)
 
+    # CreateDate is stored as text (e.g. "2025-11-27T10:20:08+00:00").
+    # date_histogram requires a proper date type, so we define a runtime field.
+    # IMPORTANT: text fields have no doc values, so we must use params._source
+    # instead of doc['CreateDate'] (doc[] always returns empty for text fields).
+    runtime_mappings = {
+        "CreateDate_parsed": {
+            "type": "date",
+            "script": {
+                "lang": "painless",
+                "source": (
+                    "String d = params._source['CreateDate'];"
+                    "if (d != null && !d.isEmpty()) {"
+                    "  try {"
+                    "    emit(ZonedDateTime.parse(d).toInstant().toEpochMilli());"
+                    "  } catch (Exception e) {}"
+                    "}"
+                ),
+            },
+        }
+    }
+
+    date_histogram_config: dict = {
+        "field": "CreateDate_parsed",   # ← runtime date field, not the raw text
+        "calendar_interval": interval,
+        "format": "yyyy-MM-dd",
+        "min_doc_count": 0,
+    }
+
+    # Only add extended_bounds when actual dates are provided
+    if from_date and to_date:
+        date_histogram_config["extended_bounds"] = {
+            "min": from_date,
+            "max": to_date,
+        }
+
     body = {
         "size": 0,
+        "runtime_mappings": runtime_mappings,
         "query": {"bool": {"filter": filters}},
         "aggs": {
             "by_date": {
-                "date_histogram": {
-                    "field": "CreateDate",
-                    "calendar_interval": interval,
-                    "format": "yyyy-MM-dd",
-                    "min_doc_count": 0,
-                    "extended_bounds": {
-                        "min": from_date,
-                        "max": to_date,
-                    },
-                },
+                "date_histogram": date_histogram_config,
                 "aggs": {
                     "resolved": {"filter": {"term": {"StatusId": 5}}},
                     "critical": {"filter": {"term": {"PiorityId": 1}}},
@@ -180,14 +208,14 @@ async def incident_trends(
     res = es.search(index=INDEX_NAME, body=body)
 
     return {
-    "interval": interval,
-    "data": [
-        {
-            "date": b["key_as_string"],
-            "incidents": b["doc_count"],
-            "resolved": b["resolved"]["doc_count"],
-            "critical": b["critical"]["doc_count"],
-        }
-        for b in res["aggregations"]["by_date"]["buckets"]
-    ],
-}
+        "interval": interval,
+        "data": [
+            {
+                "date": b["key_as_string"],
+                "incidents": b["doc_count"],
+                "resolved": b["resolved"]["doc_count"],
+                "critical": b["critical"]["doc_count"],
+            }
+            for b in res["aggregations"]["by_date"]["buckets"]
+        ],
+    }
