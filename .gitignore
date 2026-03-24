@@ -1,8 +1,74 @@
-venv/
+# -----------------------------
+# Environment
+# -----------------------------
 .env
-__pycache__/
+.env.*
+!.env.example
 
+# -----------------------------
+# Python virtual environments
+# -----------------------------
+venv/
+.venv/
+env/
+
+# -----------------------------
+# Python cache / compiled files
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# -----------------------------
+# Test / coverage artifacts
+# -----------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# -----------------------------
+# Type checking / lint caches
+# -----------------------------
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# -----------------------------
+# Build / packaging artifacts
+# -----------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# -----------------------------
+# Logs
+# -----------------------------
 *.log
 /logs/
-
 elasticsearch/logs/
+
+# -----------------------------
+# Generated reports / charts
+# -----------------------------
+prediction_evaluation.png
+CSD-CMU_Incident_081225.xlsx
+
+# -----------------------------
+# IDE / editor / OS files
+# -----------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Tooling local files
+# -----------------------------
+.claude/
+*.claude
+*.anthropic
+.cursor/

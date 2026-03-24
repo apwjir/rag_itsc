@@ -1,126 +1,161 @@
-# ITSC Incident RAG Platform
+# ITSC Incident RAG Backend
 
-![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.68+-009688.svg)
-![Elasticsearch](https://img.shields.io/badge/Elasticsearch-7.15-005571.svg)
-![Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini-4285F4.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+**ITSC Incident RAG Backend** คือระบบ Backend API สำหรับงานวิเคราะห์ Security Incident ด้วยแนวทาง Retrieval-Augmented Generation (RAG) โดยเชื่อม Elasticsearch (logs), Qdrant (knowledge vectors), และ PostgreSQL (users/settings) เพื่อช่วยทีม SOC วิเคราะห์เหตุการณ์และเลือกแนวทางตอบสนองได้เร็วขึ้น
 
-## 📌 Overview
+ระบบรองรับการทำงานร่วมกับหลาย LLM providers (เช่น Ollama, Groq, OpenAI, Google, Anthropic) ผ่านการตั้งค่าโมเดลใน environment
 
-The **ITSC Incident RAG Platform** is an AI-powered Security Operations Center (SOC) support system designed to automate the analysis of security incident logs. By leveraging **Retrieval-Augmented Generation (RAG)**, the platform correlates incoming incident tickets with the **MITRE ATT&CK** knowledge base to suggest precise mitigation strategies and identify related threats.
+- Backend repository: https://github.com/apwjir/rag_itsc
+- Frontend repository: https://github.com/nathapatt/web-management-log.git
+- Deploy repository: https://github.com/nathapatt/ticket-sys-deploy.git
 
-this project aims to reduce the Mean Time to Response (MTTR) for SOC analysts by providing context-aware AI insights directly within their investigation workflow.
+---
 
-## ✨ Key Features
+## คุณสมบัติของระบบ (Key Features)
 
-- **🤖 AI-Automated Analysis**: Automatically analyzes incident logs using Google Gemini and Qdrant to map threats to MITRE ATT&CK patterns.
-- **🛡️ Mitigation Recommendations**: Generates actionable course-of-action plans for identified threats.
-- **📊 Real-time Dashboard**: Visualizes critical alerts, pending analysis, and resolved cases.
-- **🔍 Advanced Search**: Full-text search capabilities across incident logs via Elasticsearch.
-- **✅ SOC Workflow Management**: Integrated tools for analysts to review, rate, and select AI-suggested actions.
+- **RAG-based Incident Analysis**: วิเคราะห์ incident แล้วจับคู่บริบทกับ MITRE ATT&CK knowledge base
+- **AI Mitigation Plan Generation**: สร้าง mitigation methods สำหรับทีม SOC ใช้ตัดสินใจ
+- **SOC Workflow APIs**: รองรับการเลือก action, rating, feedback และการติดตามสถานะ
+- **Incident Search & Filtering**: ค้นหาและกรองข้อมูลจาก Elasticsearch ได้ละเอียด
+- **Dashboard Metrics APIs**: ส่งข้อมูลสรุปเพื่อแสดงผลบน dashboard แบบ near real-time
+- **Auth & User Management**: ระบบ login ด้วย JWT cookie และจัดการผู้ใช้งานใน PostgreSQL
 
-## 🛠️ Tech Stack
+---
 
-- **Backend Framework**: Python (FastAPI)
-- **AI & LLM Integration**: LangChain, Google Gemini Pro
-- **Vector Database**: Qdrant (Knowledge Base Storage)
-- **Log Storage**: Elasticsearch (Incident Logs)
-- **Primary Database**: PostgreSQL (User Management & Metadata)
-- **Infrastructure**: Docker & Docker Compose
+## สมาชิกผู้พัฒนา
 
-## 🚀 Getting Started
+| ชื่อ                     | รหัสนักศึกษา |
+| ---------------------  | ------------ |
+| กัลป์กรณ์ จิรไชยหิรัญ        | 650610746    |
+| จิรพัทธ์ พลรัฐ             | 650610752    |
+| ณฐภัทร เนรังษี            | 650610758    |
+
+---
+
+## Technology Stack
+
+| Tech | Description |
+| ---- | ----------- |
+| Python 3.11 | ภาษาหลักของ Backend |
+| FastAPI | REST API Framework |
+| SQLAlchemy | ORM สำหรับ PostgreSQL |
+| PostgreSQL 17 | ข้อมูลผู้ใช้และ metadata |
+| Elasticsearch | เก็บและค้นหา incident logs |
+| Qdrant | Vector DB สำหรับ RAG retrieval |
+| LangChain | LLM orchestration |
+| OpenAI Embeddings | embedding model ที่ใช้ในปัจจุบัน |
+| Docker / Docker Compose | Infrastructure และการ deploy |
+
+---
+
+## Environment Variables ที่สำคัญ
+
+> สร้าง `.env` จาก `.env.example` ก่อนเริ่มใช้งาน
+
+### RAG / Model
+- `STIX_FILE_PATH`
+- `VECTOR_DIMS`
+- `COLLECTION_NAME`
+- `OPENAI_API_KEY` (จำเป็นสำหรับ embeddings)
+- `GENERATION_MODEL_DISPLAY_NAME` (เลือก generation model)
+- `OLLAMA_BASE_URL` (กรณีใช้ Ollama)
+- `GROQ_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY` (ใส่เฉพาะ provider ที่ใช้)
+
+### Databases / Search
+- `ES_URL`, `ES_INDEX`
+- `QDRANT_HOST`, `QDRANT_PORT`
+- `DATABASE_URL`
+- `POSTGRES_*`
+
+### Auth / Runtime
+- `SECRET_KEY`, `ALGORITHM`
+- `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `ALLOWED_ORIGINS`
+- `ADMIN_USERNAME`, `ADMIN_PASSWORD`
+
+---
+
+## การตั้งค่าและเริ่มใช้งาน
 
 ### Prerequisites
 
-Ensure you have the following installed:
-- [Docker](https://www.docker.com/) & Docker Compose
-- [Python 3.9+](https://www.python.org/)
-- Google Cloud API Key (with Vertex AI/Gemini access)
+- Python 3.11+
+- Docker + Docker Compose
 
-### Installation
+### ขั้นตอนการรันสำหรับพัฒนา
 
-1. **Clone the repository**
+1. **Clone repository**
    ```bash
-   git clone https://github.com/your-org/rag_itsc.git
+   git clone https://github.com/apwjir/rag_itsc
    cd rag_itsc
    ```
 
-2. **Environment Configuration**
-   Create a `.env` file in the root directory based on the template below:
-
-   ```env
-   # Database & Infrastructure
-   ES_URL=http://localhost:9200
-   ES_INDEX=cmu-incidents-fastapi
-   QDRANT_HOST=localhost
-   QDRANT_PORT=6333
-   
-   # AI Configuration
-   GEMINI_API_KEY=your_google_api_key_here
-   COLLECTION_NAME=mitre_attack_collection
-   VECTOR_DIMS=768
-   STIX_FILE_PATH=./data/mitre-attack.json
-
-   # Security
-   SECRET_KEY=your_super_secret_key
-   ALGORITHM=HS256
-   
-   # PostgreSQL
-   POSTGRES_USER=admin
-   POSTGRES_PASSWORD=password
-   POSTGRES_DB=rag_db
+2. **ตั้งค่า environment**
+   ```bash
+   cp .env.example .env
    ```
 
-3. **Start Infrastructure**
-   Run the following to start Elasticsearch, Kibana, Qdrant, and PostgreSQL:
+3. **เริ่ม infrastructure ที่จำเป็น**
    ```bash
    docker-compose up -d
    ```
 
-4. **Install Dependencies**
-   Create a virtual environment and install Python packages:
+4. **ติดตั้ง dependencies**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate
    pip install -r requirements.txt
    ```
 
-5. **Ingest Knowledge Base** (First time only)
-   Populate the vector database with MITRE ATT&CK data:
+5. **Initialize ระบบครั้งแรก (แนะนำวิธีนี้)**
    ```bash
-   python ingest_data.py
+   ./init_project.sh
    ```
 
-### 🏃‍♂️ Running the Application
+   สคริปต์นี้จะทำให้อัตโนมัติ:
+   - สร้าง Elasticsearch index (`init_es_index.py`)
+   - Ingest MITRE ATT&CK ลง Qdrant (`ingest_data.py`)
+   - สร้างตาราง PostgreSQL (`app/create_db.py`)
+   - Seed บัญชี Admin (`app/seed_admin.py`)
 
-Start the FastAPI server:
+6. **รัน API server**
+   ```bash
+   python -m uvicorn app.main:app --reload
+   ```
+
+### วิธี manual (ถ้าไม่ใช้สคริปต์รวม)
+
 ```bash
-python -m uvicorn app.main:app --reload
+python init_es_index.py
+python ingest_data.py
+python app/create_db.py
+python app/seed_admin.py
 ```
-- **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **Kibana Dashboard**: [http://localhost:5601](http://localhost:5601)
-
-## 📂 Project Structure
-
-```
-rag_itsc/
-├── app/
-│   ├── api/            # API Endpoints (Auth, Dashboard, Analysis)
-│   ├── core/           # Config & Security (JWT, Deps)
-│   ├── db/             # Database Connections (Elasticsearch, Postgres)
-│   ├── services/       # AI Engine & External Services
-│   └── main.py         # Application Entrypoint
-├── data/               # Static Data (STIX/MITRE JSONs)
-├── elasticsearch/      # ES Configs
-├── docker-compose.yml  # Container Orchestration
-├── ingest_data.py      # Vector DB Ingestion Script
-└── requirements.txt    # Python Dependencies
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
 
 ---
-**Developed for ITSC Security Operations**
+
+## การเข้าถึงระบบ
+
+- API Base URL: `http://localhost:8000`
+- API Docs (Swagger): `http://localhost:8000/docs`
+- Elasticsearch: `http://localhost:9200`
+- Qdrant: `http://localhost:6333`
+
+---
+
+## API Modules หลัก
+
+- `auth` - login/logout/me
+- `logs` - upload, search, summary, analyzed/unanalyzed lists
+- `ai` - วิเคราะห์ incident และ generate suggestion
+- `dashboard` - metrics/threat/severity/trends
+- `soc_action` - บันทึกการเลือก action
+- `summary` - สรุปข้อมูลเวลาและประสิทธิภาพ
+- `users` - จัดการผู้ใช้งาน
+- `auto_analyze` - ตั้งค่า auto analysis
+
+---
+
+## หมายเหตุการตั้งค่า LLM
+
+- ค่า `GENERATION_MODEL_DISPLAY_NAME` ต้องตรงกับรายการที่ระบบรองรับใน `app/services/api_models.json`
+- ถึงแม้เลือก generation ผ่าน Ollama/Groq ได้ แต่ embedding ในโค้ดปัจจุบันยังใช้ OpenAI (`OPENAI_API_KEY`)
