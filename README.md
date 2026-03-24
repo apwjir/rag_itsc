@@ -1,6 +1,6 @@
 # ITSC Incident RAG Backend
 
-**ITSC Incident RAG Backend** คือระบบ Backend API สำหรับงานวิเคราะห์ Security Incident ด้วยแนวทาง Retrieval-Augmented Generation (RAG) โดยเชื่อม Elasticsearch (logs), Qdrant (knowledge vectors), และ PostgreSQL (users/settings) เพื่อช่วยทีม SOC วิเคราะห์เหตุการณ์และเลือกแนวทางตอบสนองได้เร็วขึ้น
+**ITSC Incident RAG Backend** คือระบบ Backend API สำหรับงานวิเคราะห์ Incident Logs ด้วยแนวทาง Retrieval-Augmented Generation (RAG) โดยเชื่อม Elasticsearch (logs), Qdrant (knowledge vectors), และ PostgreSQL (users/settings) เพื่อช่วยทีม SOC วิเคราะห์เหตุการณ์และเลือกแนวทางตอบสนองได้เร็วขึ้น
 
 ระบบรองรับการทำงานร่วมกับหลาย LLM providers (เช่น Ollama, Groq, OpenAI, Google, Anthropic) ผ่านการตั้งค่าโมเดลใน environment
 
